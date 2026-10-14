@@ -212,3 +212,82 @@ class FanController:
                 for i in range(FAN_COUNT)
             ],
         }
+
+    def init_hardware(self):
+        if self.hw is None:
+            self.hw = PicoHw()
+
+    def spinup(self):
+        import time
+
+        self.hw.set_all_duty(SPINUP_DUTY)
+        time.sleep(SPINUP_TIME_S)
+        self.hw.take_pulse_counts()
+
+    def tick(self, elapsed_s):
+        die = self.hw.read_die_temp_c()
+        counts = self.hw.take_pulse_counts()
+        self.tick_logic(die, counts, elapsed_s)
+
+    def failsafe(self):
+        if self.hw is not None:
+            self.hw.failsafe()
+
+
+def _make_tach_handler(counts, index):
+    def _handler(_pin):
+        counts[index] += 1
+
+    return _handler
+
+
+class PicoHw:
+    def __init__(self):
+        import machine
+
+        self._machine = machine
+        self.pwms = []
+        for gp in PWM_PINS:
+            p = machine.PWM(machine.Pin(gp))
+            p.freq(PWM_FREQ_HZ)
+            p.duty_u16(0)
+            self.pwms.append(p)
+        self.temp_adc = machine.ADC(4)
+        self._pulse_counts = [0] * FAN_COUNT
+        self._tach_pins = []
+        for i, gp in enumerate(TACH_PINS):
+            pin = machine.Pin(gp, machine.Pin.IN, machine.Pin.PULL_UP)
+            pin.irq(
+                trigger=machine.Pin.IRQ_RISING,
+                handler=_make_tach_handler(self._pulse_counts, i),
+            )
+            self._tach_pins.append(pin)
+
+    def set_duty(self, index, fraction):
+        fraction = clamp_duty(fraction)
+        self.pwms[index].duty_u16(int(fraction * 65535))
+
+    def set_all_duty(self, fraction):
+        for i in range(FAN_COUNT):
+            self.set_duty(i, fraction)
+
+    def read_die_temp_c(self):
+        raw = self.temp_adc.read_u16()
+        voltage = raw * 3.3 / 65535
+        return 27.0 - (voltage - 0.706) / 0.001721
+
+    def take_pulse_counts(self):
+        state = self._machine.disable_irq()
+        try:
+            counts = list(self._pulse_counts)
+            for i in range(FAN_COUNT):
+                self._pulse_counts[i] = 0
+        finally:
+            self._machine.enable_irq(state)
+        return counts
+
+    def failsafe(self):
+        try:
+            self.set_all_duty(1.0)
+        except Exception:
+            pass
