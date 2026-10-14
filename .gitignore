@@ -21,3 +21,6 @@ secrets.py
 # MicroPython / firmware artifacts
 *.uf2
 .mpy
+
+# On-device runtime (Pico flash); keep out of repo if copied back
+overrides.json
