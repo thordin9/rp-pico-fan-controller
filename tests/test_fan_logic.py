@@ -56,5 +56,61 @@ class TestOverridesCodec(unittest.TestCase):
         )
 
 
+class FakeHw:
+    def __init__(self):
+        self.duties = [0.0] * fan.FAN_COUNT
+
+    def set_duty(self, index, fraction):
+        self.duties[index] = fraction
+
+    def set_all_duty(self, fraction):
+        for i in range(fan.FAN_COUNT):
+            self.duties[i] = fraction
+
+    def read_die_temp_c(self):
+        return 30.0
+
+    def take_pulse_counts(self):
+        return [0] * fan.FAN_COUNT
+
+
+class TestFanController(unittest.TestCase):
+    def setUp(self):
+        self.hw = FakeHw()
+        self.ctrl = fan.FanController(hw=self.hw, overrides_path=":memory:")
+
+    def test_manual_override_skips_curve(self):
+        ok, code, _ = self.ctrl.apply_control(2, "manual", 0.4)
+        self.assertTrue(ok)
+        self.assertEqual(code, 200)
+        self.ctrl.tick_logic(55.0, [0, 0, 0, 0], 1.0)
+        self.assertAlmostEqual(self.ctrl.duties[1], 0.4)
+        self.assertAlmostEqual(self.ctrl.duties[0], 1.0)  # auto at ≥ MAX_TEMP_C
+
+    def test_set_auto(self):
+        self.ctrl.apply_control(1, "manual", 0.2)
+        ok, code, _ = self.ctrl.set_auto(1)
+        self.assertTrue(ok)
+        self.ctrl.tick_logic(30.0, [0, 0, 0, 0], 1.0)
+        self.assertEqual(self.ctrl.modes[0], "auto")
+        self.assertAlmostEqual(self.ctrl.duties[0], fan.MIN_SPEED)
+
+    def test_bad_fan_id(self):
+        ok, code, _ = self.ctrl.apply_control(9, "manual", 0.5)
+        self.assertFalse(ok)
+        self.assertEqual(code, 404)
+
+    def test_manual_requires_duty(self):
+        ok, code, _ = self.ctrl.apply_control(1, "manual", None)
+        self.assertFalse(ok)
+        self.assertEqual(code, 400)
+
+    def test_status_dict_shape(self):
+        d = self.ctrl.status_dict()
+        self.assertIn("die_c", d)
+        self.assertEqual(len(d["fans"]), 4)
+        self.assertEqual(d["fans"][0]["id"], 1)
+
+
 if __name__ == "__main__":
     unittest.main()

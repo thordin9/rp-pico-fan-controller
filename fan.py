@@ -88,3 +88,127 @@ def parse_overrides_json(text):
             return None
         out.append({"mode": mode, "duty": duty_f})
     return out
+
+
+class FanController:
+    def __init__(self, hw=None, overrides_path=OVERRIDES_PATH):
+        self.hw = hw
+        self.overrides_path = overrides_path
+        self._mem_overrides = None
+        self.modes = ["auto"] * FAN_COUNT
+        self.duties = [MIN_SPEED] * FAN_COUNT
+        self.rpms = [0.0] * FAN_COUNT
+        self.die_c = 0.0
+        self.uptime_s = 0
+        self.wifi = "offline"
+        self.ip = ""
+        self.ssid = ""
+
+    def _index(self, fan_id_1based):
+        if not isinstance(fan_id_1based, int):
+            return None
+        if fan_id_1based < 1 or fan_id_1based > FAN_COUNT:
+            return None
+        return fan_id_1based - 1
+
+    def apply_control(self, fan_id_1based, mode, duty=None):
+        idx = self._index(fan_id_1based)
+        if idx is None:
+            return False, 404, "fan not found"
+        if mode not in ("auto", "manual"):
+            return False, 400, "invalid mode"
+        if mode == "manual":
+            if duty is None:
+                return False, 400, "duty required for manual"
+            try:
+                duty_f = clamp_duty(float(duty))
+            except (TypeError, ValueError):
+                return False, 400, "invalid duty"
+            self.modes[idx] = "manual"
+            self.duties[idx] = duty_f
+            if self.hw is not None:
+                self.hw.set_duty(idx, duty_f)
+        else:
+            self.modes[idx] = "auto"
+            if self.hw is not None:
+                d = temp_to_duty(self.die_c)
+                self.duties[idx] = d
+                self.hw.set_duty(idx, d)
+        if not self.save_overrides():
+            print("fan: warning: failed to persist overrides")
+        return True, 200, "ok"
+
+    def set_auto(self, fan_id_1based):
+        return self.apply_control(fan_id_1based, "auto", None)
+
+    def save_overrides(self):
+        fans = [
+            {"mode": self.modes[i], "duty": self.duties[i]} for i in range(FAN_COUNT)
+        ]
+        text = overrides_to_json(fans)
+        if self.overrides_path == ":memory:":
+            self._mem_overrides = text
+            return True
+        try:
+            with open(self.overrides_path, "w") as f:
+                f.write(text)
+            return True
+        except Exception as exc:
+            print("fan: save_overrides failed:", exc)
+            return False
+
+    def load_overrides(self):
+        try:
+            if self.overrides_path == ":memory:":
+                text = self._mem_overrides
+                if not text:
+                    return False
+            else:
+                with open(self.overrides_path, "r") as f:
+                    text = f.read()
+        except Exception:
+            return False
+        parsed = parse_overrides_json(text)
+        if parsed is None:
+            return False
+        for i, item in enumerate(parsed):
+            self.modes[i] = item["mode"]
+            if item["mode"] == "manual":
+                self.duties[i] = item["duty"]
+                if self.hw is not None:
+                    self.hw.set_duty(i, item["duty"])
+            else:
+                d = temp_to_duty(self.die_c)
+                self.duties[i] = d
+                if self.hw is not None:
+                    self.hw.set_duty(i, d)
+        return True
+
+    def tick_logic(self, die_c, pulse_counts, elapsed_s):
+        self.die_c = die_c
+        auto_duty = temp_to_duty(die_c)
+        for i in range(FAN_COUNT):
+            if self.modes[i] == "auto":
+                self.duties[i] = auto_duty
+                if self.hw is not None:
+                    self.hw.set_duty(i, auto_duty)
+            rpm = pulses_to_rpm(pulse_counts[i], elapsed_s)
+            self.rpms[i] = (RPM_EMA_ALPHA * rpm) + ((1.0 - RPM_EMA_ALPHA) * self.rpms[i])
+
+    def status_dict(self):
+        return {
+            "die_c": self.die_c,
+            "uptime_s": int(self.uptime_s),
+            "wifi": self.wifi,
+            "ip": self.ip,
+            "ssid": self.ssid,
+            "fans": [
+                {
+                    "id": i + 1,
+                    "mode": self.modes[i],
+                    "duty": self.duties[i],
+                    "rpm": self.rpms[i],
+                }
+                for i in range(FAN_COUNT)
+            ],
+        }
