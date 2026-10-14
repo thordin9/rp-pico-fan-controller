@@ -1,12 +1,13 @@
 # Pico W Thermal PWM Fan Controller (4 fans)
 
-MicroPython firmware for a **Raspberry Pi Pico W** that drives **up to four 4-pin PC fans** from the **RP2040 die temperature** sensor, with a lightweight **Wi-Fi status page**.
+MicroPython firmware for a **Raspberry Pi Pico W** that drives **up to four 4-pin PC fans** from the **RP2040 die temperature** sensor, with a **Wi-Fi control page** and **Prometheus `/metrics`**.
 
-- **Shared PWM** on **GP15** @ **25 kHz** (`duty_u16`) — one signal, same duty for all fans
+- **Per-fan PWM** on **GP15 / GP16 / GP17 / GP18** @ **25 kHz** — independent duty each
 - **Per-fan tach** on **GP14 / GP13 / GP12 / GP11** (rising IRQ, 2 pulses/rev → RPM each)
 - **Die temp** via **ADC(4)** — **not ambient air temperature**
+- **Auto / manual** per fan — manual overrides persist in `overrides.json` on the Pico
 - **Onboard LED** via `Pin("LED")` on Pico W (falls back to GP25 on classic Pico)
-- **Ctrl+C fail-safe**: shared PWM → 100%, LED on
+- **Ctrl+C fail-safe**: all PWM → 100%, LED on (does **not** wipe overrides)
 - **Optional Wi-Fi** (Pico W): edit [`config.py`](config.py), browse `http://<pico-ip>/`
 
 Typical idle die readings are about **~27–35 °C**. The curve is tuned so **~30 °C die stays at a quiet low duty**, not full speed.
@@ -22,9 +23,9 @@ Classic Pico (no radio) still runs fan control; Wi-Fi simply stays disabled.
 | **Never power fans from the Pico** | Fans use an **external 12 V** supply sized for **all** fans. |
 | **Power the Pico from regulated ~5 V → VSYS** | Feed **5 V (≤ 5.5 V)** into **VSYS (physical pin 39)**. **Never put 5 V on the 3V3 pin.** |
 | **Common ground is required** | Tie **Pico GND**, **5 V PSU GND**, and **12 V fan PSU GND** together. |
-| **3.3 V PWM is OK** | Most 4-pin fans accept 3.3 V PWM. Tee the PWM line to every fan. |
+| **3.3 V PWM is OK** | Most 4-pin fans accept 3.3 V PWM. Use a **separate** PWM GPIO per fan. |
 | **Do not parallel tach lines** | Each tach needs its **own GPIO**. Paralleling open-collectors mixes pulses and corrupts RPM. |
-| **External tach pull-ups** | Fit **4.7 kΩ–10 kΩ** from **each** tach line → **Pico 3V3** (not the 5 V rail). |
+| **External tach pull-ups** | Fit **10 kΩ** from **each** tach line → **Pico 3V3** (not the 5 V rail). |
 
 ---
 
@@ -35,25 +36,28 @@ Classic Pico (no radio) still runs fan control; Wi-Fi simply stays disabled.
 | Board power (~5 V) | **VSYS** (physical **pin 39**) | Regulated **5 V** input (board tolerates up to **5.5 V**) |
 | Board / signal ground | **GND** | Common with 5 V and 12 V supplies |
 | Logic / tach pull-up rail | **3V3** | Output from onboard regulator — **do not inject 5 V here** |
-| Shared PWM (all fans) | **GP15** | Tee to every fan PWM wire (pin 4) |
-| Fan 1 tach | **GP14** | Fan 1 pin 3 + pull-up to 3V3 |
-| Fan 2 tach | **GP13** | Fan 2 pin 3 + pull-up to 3V3 |
-| Fan 3 tach | **GP12** | Fan 3 pin 3 + pull-up to 3V3 |
-| Fan 4 tach | **GP11** | Fan 4 pin 3 + pull-up to 3V3 |
+| Fan 1 PWM | **GP15** | Fan 1 pin 4 |
+| Fan 2 PWM | **GP16** | Fan 2 pin 4 |
+| Fan 3 PWM | **GP17** | Fan 3 pin 4 |
+| Fan 4 PWM | **GP18** | Fan 4 pin 4 |
+| Fan 1 tach | **GP14** | Fan 1 pin 3 + **10 kΩ** pull-up to 3V3 |
+| Fan 2 tach | **GP13** | Fan 2 pin 3 + **10 kΩ** pull-up to 3V3 |
+| Fan 3 tach | **GP12** | Fan 3 pin 3 + **10 kΩ** pull-up to 3V3 |
+| Fan 4 tach | **GP11** | Fan 4 pin 3 + **10 kΩ** pull-up to 3V3 |
 | Die temperature | **ADC(4)** | On-chip; no external wire |
 | Onboard LED | `LED` / GP25 | Status blink |
 
-**USB alternative:** plugging USB powers the board via **VBUS** instead of the external 5 V → VSYS path. Prefer **one** power method at a time for bench setups (or use a properly diode-OR’d supply). The diagram below shows the **external 5 V → VSYS** path.
+**USB alternative:** plugging USB powers the board via **VBUS** instead of the external 5 V → VSYS path. Prefer **one** power method at a time for bench setups.
 
-Adjacent GPIOs (15→11) keep breadboard wiring compact. Unused tach pins can stay disconnected (RPM ~0).
+Unused tach pins can stay disconnected (RPM ~0).
 
 ---
 
-## Wiring (4 fans, shared PWM, external 5 V)
+## Wiring (4 fans, per-fan PWM, external 5 V)
 
-- **Fans:** external **12 V** (+12V / GND tee); **shared PWM** from GP15; **separate tach** to GP14–GP11.
+- **Fans:** external **12 V** (+12V / GND tee); **separate PWM** from GP15–GP18; **separate tach** to GP14–GP11.
 - **Pico W:** regulated **~5 V → VSYS (pin 39)** + **GND**.
-- **Pull-ups:** **4.7 kΩ–10 kΩ** each tach → **Pico 3V3** (never to 5 V / 12 V).
+- **Pull-ups:** **10 kΩ** each tach → **Pico 3V3** (never to 5 V / 12 V).
 
 ```text
   5V PSU (~5 V, ≤5.5 V)              12V PSU  (fan current + margin)
@@ -65,12 +69,15 @@ Adjacent GPIOs (15→11) keep breadboard wiring compact. Unused tach pins can st
            |                                     |    |    |    |
            |                                  Fan1 Fan2 Fan3 Fan4  +12V
            |                                  Fan1 Fan2 Fan3 Fan4  GND --> common GND
-           |                                  Fan1 Fan2 Fan3 Fan4  PWM \__/__/__/--> GP15
-           |                                                            (shared 25 kHz)
+           |                                  Fan1 PWM <---------------- GP15
+           |                                  Fan2 PWM <---------------- GP16
+           |                                  Fan3 PWM <---------------- GP17
+           |                                  Fan4 PWM <---------------- GP18
+           |                                            (25 kHz each)
            |
            |     Pico 3V3 ----+------+------+------+
            |                  |      |      |      |
-           |                4.7-10k 4.7-10k 4.7-10k 4.7-10k
+           |                 10k    10k    10k    10k
            |                  |      |      |      |
            |     Fan1 Tach ---+------|------|------|-------- GP14
            |     Fan2 Tach ----------+------|------|-------- GP13
@@ -104,7 +111,7 @@ flowchart TB
     F4["Fan4"]
   end
 
-  subgraph PULLUPS["Tach pull-ups 4.7k–10k to 3V3"]
+  subgraph PULLUPS["Tach pull-ups 10k to 3V3"]
     R1["R1"]
     R2["R2"]
     R3["R3"]
@@ -113,7 +120,10 @@ flowchart TB
 
   subgraph PICO["Pico W"]
     VSYS["VSYS pin 39"]
-    GP15["GP15 shared PWM"]
+    GP15["GP15 Fan1 PWM"]
+    GP16["GP16 Fan2 PWM"]
+    GP17["GP17 Fan3 PWM"]
+    GP18["GP18 Fan4 PWM"]
     GP14["GP14 Fan1 tach"]
     GP13["GP13 Fan2 tach"]
     GP12["GP12 Fan3 tach"]
@@ -134,9 +144,9 @@ flowchart TB
   PGND --> F3
   PGND --> F4
   GP15 --> F1
-  GP15 --> F2
-  GP15 --> F3
-  GP15 --> F4
+  GP16 --> F2
+  GP17 --> F3
+  GP18 --> F4
   F1 --- R1 --> GP14
   F2 --- R2 --> GP13
   F3 --- R3 --> GP12
@@ -147,29 +157,25 @@ flowchart TB
   V33 --> R4
 ```
 
-**Paralleling PWM:** the PWM wire is a **logic-level control input**, not a power rail — one Pico GPIO can drive several fan PWM pins in parallel for most PC fans. Keep leads short. If a particular fan ignores 3.3 V PWM, you need a level shifter (rare).
-
-**PSU headroom:** size 12 V current for **all four fans at max**, plus margin (fans spike at spin-up). Example: 4 × 0.25 A → use at least a ~1.5–2 A supply. Size the **5 V** rail for the Pico W only (typically well under 0.5 A with Wi-Fi).
+**PSU headroom:** size 12 V current for **all four fans at max**, plus margin. Size the **5 V** rail for the Pico W only (typically well under 0.5 A with Wi-Fi).
 
 ---
 
 ## Thermal curve (die °C)
 
-`ADC(4)` measures **silicon die temperature**. Ambient is usually cooler.
+`ADC(4)` measures **silicon die temperature**. Ambient is usually cooler. **Auto** fans share this curve; **manual** fans ignore it until returned to auto.
 
-| Die temperature | Shared PWM duty |
-|-----------------|-----------------|
+| Die temperature | Auto PWM duty |
+|-----------------|---------------|
 | **≤ 35 °C** (`MIN_TEMP_C`) | **18%** (`MIN_SPEED`) — quiet idle floor |
 | **35 → 55 °C** | Linear ramp 18% → 100% |
 | **≥ 55 °C** (`MAX_TEMP_C`) | **100%** |
 
-Idle die ≈ **30 °C** → quiet floor. Under load, duty ramps; by **55 °C die** all fans are flat-out (same duty).
-
-Tune `MIN_TEMP_C` / `MAX_TEMP_C` / `MIN_SPEED` at the top of [`main.py`](main.py). Boot holds ~**60% for 1.5 s** so stubborn fans leave a dead stop.
+Tune constants at the top of [`fan.py`](fan.py). Boot holds ~**60% for 1.5 s** on all fans so stubborn fans leave a dead stop, then applies saved overrides.
 
 ---
 
-## Wi-Fi status page (Pico W)
+## Wi-Fi control page & API (Pico W)
 
 1. Edit [`config.py`](config.py):
    ```python
@@ -179,13 +185,30 @@ Tune `MIN_TEMP_C` / `MAX_TEMP_C` / `MIN_SPEED` at the top of [`main.py`](main.py
    HTTP_PORT = 80
    ```
 2. Leave `YOUR_SSID` / `YOUR_PASSWORD` placeholders to run **fan-only** (no radio join).
-3. Flash `config.py` **and** `main.py` (see below).
-4. Watch the serial log for `Wi-Fi: connected, IP=…` then open **`http://<pico-ip>/`** on the same LAN.
-5. JSON mirror: **`http://<pico-ip>/status.json`**.
+3. Flash firmware files (see below).
+4. Watch the serial log for `Wi-Fi: connected, IP=…` then open **`http://<pico-ip>/`**.
 
-The page shows die °C, shared PWM %, RPM for fans 1–4, uptime, and link/IP. It auto-refreshes every 2 seconds. The HTTP server is a tiny stdlib socket loop — no extra frameworks.
+| Method | Path | Purpose |
+|--------|------|---------|
+| `GET` | `/` | Control UI — per-fan duty slider, auto/manual, live stats |
+| `GET` | `/status.json` | JSON status |
+| `POST` | `/api/fans/<id>` | JSON `{"mode":"auto"|"manual","duty":0.0–1.0}` (`id` 1–4; duty required for manual) |
+| `POST` | `/api/fans/<id>/auto` | Clear override for one fan |
+| `GET` | `/metrics` | Prometheus text exposition |
 
-**Secrets:** do not commit real Wi-Fi passwords to a public remote. Placeholders ship in-repo by design.
+Examples:
+
+```bash
+curl -X POST http://PICO_IP/api/fans/2 -H 'Content-Type: application/json' \
+  -d '{"mode":"manual","duty":0.4}'
+curl -X POST http://PICO_IP/api/fans/2/auto
+curl http://PICO_IP/status.json
+curl http://PICO_IP/metrics
+```
+
+**Overrides:** successful control POSTs write `overrides.json` on the Pico. Reboot restores them. Fail-safe (Ctrl+C) forces 100% now but does **not** rewrite the file.
+
+**Secrets:** do not commit real Wi-Fi passwords to a public remote.
 
 ---
 
@@ -199,13 +222,16 @@ The page shows die °C, shared PWM %, RPM for fans 1–4, uptime, and link/IP. I
 
 ### 2. Copy firmware
 
-**Thonny:** save both `config.py` and `main.py` to the Pico (interpreter: MicroPython Raspberry Pi Pico).
+**Thonny:** save `config.py`, `main.py`, `fan.py`, `web.py`, and `metrics.py` to the Pico.
 
 **mpremote:**
 
 ```bash
 mpremote connect list
 mpremote connect auto cp config.py :config.py
+mpremote connect auto cp fan.py :fan.py
+mpremote connect auto cp web.py :web.py
+mpremote connect auto cp metrics.py :metrics.py
 mpremote connect auto cp main.py :main.py
 mpremote connect auto reset
 ```
@@ -213,30 +239,46 @@ mpremote connect auto reset
 Serial log (1 Hz) example:
 
 ```text
-die= 30.2°C  duty= 18%  F1= 820 F2= 815 F3= 830 F4=   0
+die= 30.2°C  F1=a= 18%= 820 F2=m= 40%= 815 F3=a= 18%= 830 F4=a= 18%=   0
 ```
+
+(`a` = auto, `m` = manual)
 
 ### 3. Stop safely
 
-**Ctrl+C** in the REPL → shared PWM **100%**, LED on.
+**Ctrl+C** in the REPL → all PWM **100%**, LED on. Soft reset afterward reloads overrides from flash.
 
 ---
 
-## Firmware behaviour
+## Host unit tests
 
-- Four tach IRQs; **all counters read/cleared under `disable_irq` / `enable_irq`**.
-- Per-fan RPM is EMA-smoothed and clamped.
-- Exceptions / Ctrl+C hit the same **100% fail-safe**.
-- Wi-Fi failure does **not** stop thermal control.
+Pure logic (curve, overrides, metrics, HTTP dispatch) runs on a desktop Python without hardware:
+
+```bash
+python3 -m unittest discover -s tests -v
+```
 
 ---
 
-## Optional extras
+## Firmware layout
 
-- The wiring diagram already includes **per-tach 4.7–10 kΩ pull-ups**; keep them even if RPM looks fine (more reliable edges).
-- **PSU current headroom** for simultaneous spin-up of all fans.
-- Shorter PWM tee wires / a small buffer if you extend beyond a few fans or long cable runs.
-- `WIFI_ENABLED = False` in `config.py` for a wired-only / radio-off deploy.
+| File | Role |
+|------|------|
+| [`main.py`](main.py) | Boot, Wi-Fi, sample loop |
+| [`fan.py`](fan.py) | PWM/tach, thermal curve, modes, overrides |
+| [`web.py`](web.py) | HTTP UI / API / counters |
+| [`metrics.py`](metrics.py) | Prometheus text |
+| [`config.py`](config.py) | Wi-Fi / port |
+
+---
+
+## Device smoke checklist
+
+1. Serial shows per-fan PWM pins and `die=… F1=a=…`
+2. Open `http://<ip>/` — set fan 2 manual 40%; others track temp
+3. Reboot — fan 2 still manual 40%
+4. `curl http://<ip>/metrics` shows `pico_fan_*` metrics
+5. Ctrl+C — fans full speed; soft reboot restores overrides
 
 ---
 
@@ -247,7 +289,7 @@ die= 30.2°C  duty= 18%  F1= 820 F2= 815 F3= 830 F4=   0
 - Regulated **~5 V** supply for **VSYS** (or USB for bench use)
 - **12 V** PSU rated for the total fan current + margin
 - Common GND across Pico / 5 V / 12 V
-- Four **4.7–10 kΩ** resistors (tach → 3V3)
+- Four **10 kΩ** resistors (tach → 3V3)
 
 ---
 
