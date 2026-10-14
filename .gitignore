@@ -1,0 +1,23 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+
+# Local secrets overrides (keep placeholders in config.py)
+config.local.py
+secrets.py
+.env
+.env.*
+
+# Editor / OS
+.DS_Store
+.idea/
+.vscode/
+*.swp
+*~
+
+# MicroPython / firmware artifacts
+*.uf2
+.mpy
