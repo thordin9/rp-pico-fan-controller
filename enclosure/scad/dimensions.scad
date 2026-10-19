@@ -16,23 +16,24 @@ $fn = quality;
 // Extra room around every module edge, per side.
 fit_clearance = 0.30;
 
-// Nominal wall. 2.0 mm is five 0.4 mm perimeters, so the wall can be solid.
-wall = 2.0;
-floor_t = 2.0;
-lid_t = 2.0;
+// Nominal wall. 1.6 mm is four 0.4 mm perimeters. Floor and lid are
+// 1.2 mm, three perimeters. Indoor only: no extra thickness for sun or rain.
+wall = 1.6;
+floor_t = 1.2;
+lid_t = 1.2;
 nozzle = 0.40;
 
 // How far the lid skirt passes down over the body, and the radial gap
 // between the body outside and the skirt inside (per side).
-skirt_h = 5.0;
-skirt_t = 1.8;
-skirt_gap = 0.35;
+skirt_h = 3.2;
+skirt_t = 1.2;
+skirt_gap = 0.30;
 
 // Snap: the ridge sticks out past the body. Engagement is what's left
-// after the skirt gap. Kept in the range a 1.8 mm PLA/PETG skirt can flex.
-snap_protrusion = 0.80;
-snap_catch_h = 0.70;
-snap_len = 12.0;
+// after the skirt gap. A 1.2 mm skirt flexes over a short ridge.
+snap_protrusion = 0.65;
+snap_catch_h = 0.55;
+snap_len = 8.0;
 
 // --------------------------------------------------------------------------
 // Raspberry Pi Pico W
@@ -75,15 +76,16 @@ pico_usb_shell_w = 8.0;
 pico_usb_shell_h = 3.8;
 pico_usb_shell_depth = 6.0; // how far the shell reaches onto the PCB
 
-// Air around the board. The long-side gutters are where Dupont/JST leads
-// fold down off the headers. The antenna end is kept well clear of the
-// 14 × 9 mm keep-out and the end wall is open across that keep-out.
-pico_gutter = 11.0;
-pico_antenna_gap = 8.0;
+// Air around the board. The long-side gutters only have to let a Dupont
+// lead turn out through the wall slot; the housing itself sits on the
+// header, over the PCB. The antenna keep-out is on the PCB. The end wall
+// is open across it, so the gap past the board edge stays small.
+pico_gutter = 4.0;
+pico_antenna_gap = 2.5;
 // Plastic left above the header pins before the lid inner face.
-pico_above_header = 5.5;
-pico_standoff_h = 6.0;     // clears solder tails and the USB solder pools
-pico_standoff_od = 7.5;
+pico_above_header = 1.8;
+pico_standoff_h = 3.0;     // clears solder tails and the USB solder pools
+pico_standoff_od = 6.0;    // 3.5 mm insert plus 1.25 mm of plastic per side
 
 // BOOTSEL is on the top, just inboard of the USB connector. The datasheet
 // drawing does not call out the button centre, so the hole is oversized
@@ -115,7 +117,12 @@ oled_window_extra = 0.40; // total, added to the active area (0.20 per side)
 // Not a Waveshare callout; measure and override if your connector differs.
 oled_connector_w = 10.5;
 oled_connector_h = 6.5;
-oled_nest_wall = 1.0;
+oled_nest_wall = 0.6;
+// Active-area centre relative to the module centre. The Waveshare 0.91"
+// glass sits in the middle of the 36 × 12.5 mm board; nudge these if a
+// remeasure shows the pixels are shifted toward the PH2.0 end.
+oled_active_dx = 0.0;
+oled_active_dy = 0.0;
 
 // --------------------------------------------------------------------------
 // BMP280 module (HandsOn Technology user guide, attached)
@@ -142,12 +149,12 @@ bmp_pcb_t = 1.6;
 bmp_pin_count = 6;
 bmp_pin_pitch = 2.54;
 bmp_header_above_pcb = 8.5;
-// Still air between the PCB edge and the inner wall. Large enough that an
-// M2 insert boss, tucked into each back corner and biting the walls, stays
-// clear of the module and of the slotted platform.
-bmp_air = 7.2;
-bmp_platform_h = 3.0;      // leg length under the sensor board
-bmp_above_header = 1.8;    // air between header pins and the lid inner face
+// Clearance between the PCB edge and the inner wall. Indoor: no still-air
+// buffer and no corner insert bosses. Just enough for the board, the pin
+// row, and the cable turning into the slot.
+bmp_air = 2.2;
+bmp_platform_h = 2.0;      // leg length under the sensor board
+bmp_above_header = 1.2;    // air between header pins and the lid inner face
 
 // --------------------------------------------------------------------------
 // Fasteners
@@ -163,9 +170,16 @@ m2_clearance_d = 2.4;     // screw shank through plastic / standoff bore
 m2_head_d = 4.0;          // pan-head envelope, for the lid hole note
 
 // Case and sensor mounting (into a panel, not into the Pico).
+// The bodies themselves are flat. A separate bracket slides onto these
+// rails. The same section is used on the Pico case and both sensor bodies.
 m3_clearance_d = 3.4;
 ziptie_slot_l = 5.0;
-ziptie_slot_w = 2.2;
+ziptie_slot_w = 1.8;
+rail_t = 1.4;
+rail_h = 3.2;
+rail_end_gap = 3.0;
+rail_clearance = 0.30;
+rail_detent = 0.40;
 
 // --------------------------------------------------------------------------
 // Derived fits
@@ -208,9 +222,11 @@ snap_engagement = snap_protrusion - skirt_gap;
 
 assert(nozzle <= 0.4 + 1e-6, "Models are tuned for a 0.4 mm nozzle");
 assert(wall + 1e-6 >= 4 * nozzle, "Wall must be at least four perimeters");
-assert(wall + 1e-6 >= 1.6, "Wall thinner than 1.6 mm");
-assert(floor_t + 1e-6 >= 1.6, "Floor thinner than 1.6 mm");
-assert(lid_t + 1e-6 >= 1.6, "Lid thinner than 1.6 mm");
+assert(wall + 1e-6 >= 1.2, "Wall thinner than 1.2 mm");
+assert(floor_t + 1e-6 >= 3 * nozzle, "Floor must be at least three perimeters");
+assert(lid_t + 1e-6 >= 3 * nozzle, "Lid must be at least three perimeters");
+assert(floor_t + 1e-6 >= 1.2, "Floor thinner than 1.2 mm");
+assert(lid_t + 1e-6 >= 1.2, "Lid thinner than 1.2 mm");
 assert(fit_clearance >= 0.20 && fit_clearance <= 0.60,
        "fit_clearance should stay a few tenths of a millimetre");
 
@@ -220,10 +236,10 @@ assert(pico_hole_d + 1e-6 >= 2.0, "M2 shank (2.0 mm) must pass the Pico hole");
 assert(pico_hole_d <= 2.2, "Pico mounting hole should stay the official 2.1 mm");
 assert(pico_usb_opening_w >= pico_usb_shell_w + 0.8, "USB opening narrower than the shell");
 assert(pico_usb_opening_h >= pico_usb_shell_h + 0.8, "USB opening shorter than the shell");
-assert(pico_antenna_gap >= 3.0, "Antenna end gap is too small");
+assert(pico_antenna_gap >= 2.0, "Antenna end gap is too small");
 assert(pico_standoff_h >= 3.0, "Standoff will not clear solder tails");
-assert(pico_above_header >= 3.0, "Not enough air above the headers");
-assert(pico_standoff_od >= m2_insert_od + 3.0, "Standoff wall around the insert is thin");
+assert(pico_above_header >= 1.2, "Not enough air above the headers");
+assert(pico_standoff_od >= m2_insert_od + 2.4, "Standoff wall around the insert is thin");
 
 assert(oled_window_l >= oled_active_l, "OLED window clips the active area");
 assert(oled_window_w >= oled_active_w, "OLED window clips the active area");
@@ -236,7 +252,7 @@ assert(oled_connector_w + 1.0 < pico_header_inner_gap,
 
 assert(bmp_pocket_l >= bmp_pcb_l + 2 * 0.20, "BMP280 pocket is tight");
 assert(bmp_pocket_w >= bmp_pcb_w + 2 * 0.20, "BMP280 pocket is tight");
-assert(bmp_air >= 2.0, "Not enough still air around the BMP280");
+assert(bmp_air >= 1.6, "Not enough clearance around the BMP280");
 assert(bmp_inner_h >= bmp_platform_h + bmp_pcb_t + bmp_header_above_pcb + 1.0,
        "BMP280 cavity will hit the header pins");
 assert(bmp_pin_count * bmp_pin_pitch < bmp_pcb_l,
@@ -244,7 +260,7 @@ assert(bmp_pin_count * bmp_pin_pitch < bmp_pcb_l,
 
 assert(snap_engagement >= 0.30 && snap_engagement <= 0.55,
        "Snap engagement out of the printable range");
-assert(skirt_t >= 1.6, "Lid skirt too thin to flex as a snap");
+assert(skirt_t >= 1.2, "Lid skirt too thin to flex as a snap");
 assert(m2_insert_hole_d < m2_insert_od, "Insert hole must be under the insert OD");
 assert(m2_insert_hole_depth >= m2_insert_len, "Insert pocket shorter than the insert");
 assert(m2_clearance_d >= 2.05, "M2 clearance hole too tight");

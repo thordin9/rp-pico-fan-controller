@@ -23,19 +23,6 @@ module stadium_x(length, height, depth) {
         }
 }
 
-// Printable rain awning. Root sits on the Y=0 plane; callers overlap it
-// with the wall. The underside rises toward +Y at 45°, so the hood prints
-// without support. root_h must clear proj + 0.35 + tip_h so the top falls
-// toward the tip and water drips off the edge.
-module rain_hood(length, proj=2.0, root_h=3.3, tip_h=0.6) {
-    hull() {
-        translate([-length / 2, -0.45, 0])
-            cube([length, 0.45, root_h]);
-        translate([-length / 2, proj - 0.15, proj + 0.35])
-            cube([length, 0.15, tip_h]);
-    }
-}
-
 // Snap ridge. Root on the Y=0 plane, protrudes toward +Y.
 // Bottom `snap_catch_h` is a vertical catch; above that a 45° lead-in.
 module snap_ridge(length, prot, catch_h) {
@@ -59,8 +46,27 @@ module deboss_text(label, size, depth=0.65) {
 
 // Right-triangle gusset in the XZ plane, extruded along Y.
 // Hypotenuse is the top face, so it prints without support.
-module gusset_xz(run, rise, thick) {
-    rotate([90, 0, 0])
-        linear_extrude(height=thick)
-            polygon([[0, 0], [run, 0], [0, rise]]);
+// Slide rail on the outside of a long wall. Overlaps the wall by `bite`
+// so the union is not a coplanar face. The zip-tie slot stays in the
+// rail and does not break into the cavity. A detent near the open end
+// is what the bracket jaw flexes over.
+module slide_rails(length, width, t, h, end_gap, slot_l, slot_w, detent) {
+    bite = 0.4;
+    x0 = end_gap;
+    span = length - 2 * end_gap;
+    for (side = [-1, 1]) {
+        y = side < 0 ? -t : width - bite;
+        translate([x0, y, 0])
+            difference() {
+                cube([span, t + bite, h]);
+                translate([span / 2 - slot_l / 2,
+                           side < 0 ? 0 : bite,
+                           (h - slot_w) / 2])
+                    cube([slot_l, t + 0.2, slot_w]);
+            }
+        // Overlap the rail by 0.25 so the detent is not a coplanar face.
+        bump_y = side < 0 ? -t - detent : width + t - 0.25;
+        translate([x0 + 2.2, bump_y, 0.6])
+            cube([1.6, detent + 0.25, h - 1.2]);
+    }
 }

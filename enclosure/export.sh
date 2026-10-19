@@ -78,15 +78,20 @@ run_stl bmp280_housing.scad "$STL/bmp280_int_body.stl" -D 'variant="INT"' -D 'pa
 run_stl bmp280_housing.scad "$STL/bmp280_int_lid.stl" -D 'variant="INT"' -D 'part="lid"'
 run_stl bmp280_housing.scad "$STL/bmp280_ext_body.stl" -D 'variant="EXT"' -D 'part="body"'
 run_stl bmp280_housing.scad "$STL/bmp280_ext_lid.stl" -D 'variant="EXT"' -D 'part="lid"'
+run_stl mount.scad "$STL/mount_pico.stl" -D 'which="pico"'
+run_stl mount.scad "$STL/mount_bmp.stl" -D 'which="bmp"'
 
 run_png pico_case.scad "$PNG/pico_case_base.png" -D 'part="base"'
 run_png pico_case.scad "$PNG/pico_case_lid.png" -D 'part="lid"'
 run_png pico_case.scad "$PNG/pico_case_section.png" -D 'part="section"'
+run_png pico_case.scad "$PNG/pico_case_closed.png" -D 'part="closed"'
 run_png bmp280_housing.scad "$PNG/bmp280_int_body.png" -D 'variant="INT"' -D 'part="body"'
 run_png bmp280_housing.scad "$PNG/bmp280_int_lid.png" -D 'variant="INT"' -D 'part="lid"'
 run_png bmp280_housing.scad "$PNG/bmp280_ext_body.png" -D 'variant="EXT"' -D 'part="body"'
 run_png bmp280_housing.scad "$PNG/bmp280_ext_lid.png" -D 'variant="EXT"' -D 'part="lid"'
-run_png bmp280_housing.scad "$PNG/bmp280_ext_section.png" -D 'variant="EXT"' -D 'part="section"'
+run_png bmp280_housing.scad "$PNG/bmp280_section.png" -D 'variant="INT"' -D 'part="section"'
+run_png mount.scad "$PNG/mount_pico.png" -D 'which="pico"'
+run_png mount.scad "$PNG/mount_bmp.png" -D 'which="bmp"'
 
 python3 - "$STL" << 'PY'
 import struct, collections, sys
@@ -183,29 +188,39 @@ def expect(tris, name, pt, want):
 
 base = analyze(stl_dir / "pico_case_base.stl")
 # Separate exits on the cable wall, and the holes that have to stay open.
-expect(base, "INT exit", (37.0, 1.0, 6.1), False)
-expect(base, "wall between INT and EXT", (42.2, 1.0, 6.1), True)
-expect(base, "EXT exit", (47.5, 1.0, 6.1), False)
-expect(base, "USB opening", (1.0, 23.5, 10.9), False)
-expect(base, "standoff insert bore", (4.0, 17.8, 1.0), False)
-expect(base, "PWR exit", (16.0, 46.0, 7.0), False)
+expect(base, "INT exit", (30.0, 0.8, 6.9), False)
+expect(base, "wall between INT and EXT", (35.0, 0.8, 6.9), True)
+expect(base, "EXT exit", (40.0, 0.8, 6.9), False)
+expect(base, "USB opening", (0.8, 16.1, 7.1), False)
+expect(base, "standoff insert bore", (3.6, 10.4, 0.6), False)
+expect(base, "PWR exit", (16.0, 31.4, 6.8), False)
+expect(base, "floor", (28.0, 16.0, 0.6), True)
+expect(base, "zip slot in rail", (28.35, -0.7, 1.6), False)
 
 lid = analyze(stl_dir / "pico_case_lid.stl")
-expect(lid, "OLED window", (35.65, 25.65, 1.0), False)
-expect(lid, "lid beside window", (35.65, 31.2, 1.0), True)
-expect(lid, "BOOTSEL", (11.65, 25.65, 1.0), False)
+# Through-window on the active-area centre. Beside it the lid is solid.
+expect(lid, "OLED window", (34.6, 17.6, 0.4), False)
+expect(lid, "lid beside window", (34.6, 24.0, 0.6), True)
+expect(lid, "BOOTSEL", (10.6, 17.6, 0.6), False)
 
 ib = analyze(stl_dir / "bmp280_int_body.stl")
-expect(ib, "INT cable exit", (19.7, 1.0, 6.0), False)
-expect(ib, "INT louver", (7.88, 1.0, 6.1), False)
-expect(ib, "INT insert", (4.75, 31.65, 15.6), False)
+expect(ib, "INT cable exit", (14.3, 0.8, 6.1), False)
+expect(ib, "INT wall beside cable", (8.0, 0.8, 6.1), True)
+expect(ib, "INT floor", (14.0, 12.0, 0.5), True)
+expect(ib, "INT cavity", (14.0, 12.0, 8.0), False)
 
 eb = analyze(stl_dir / "bmp280_ext_body.stl")
-expect(eb, "EXT cable exit", (19.7, 1.0, 6.0), False)
-expect(eb, "EXT louver", (7.88, 1.0, 6.3), False)
-expect(eb, "between EXT louvers", (7.88, 1.0, 8.0), True)
+expect(eb, "EXT cable exit", (14.3, 0.8, 6.1), False)
+expect(eb, "EXT wall beside cable", (8.0, 0.8, 6.1), True)
+expect(eb, "EXT cavity", (14.0, 12.0, 8.0), False)
 
-analyze(stl_dir / "bmp280_int_lid.stl")
-analyze(stl_dir / "bmp280_ext_lid.stl")
+il = analyze(stl_dir / "bmp280_int_lid.stl")
+expect(il, "INT lid vent", (23.0, 14.3, 0.6), False)
+expect(il, "INT label does not punch through", (15.8, 14.3, 0.95), True)
+el = analyze(stl_dir / "bmp280_ext_lid.stl")
+expect(el, "EXT lid vent", (23.0, 14.3, 0.6), False)
+
+analyze(stl_dir / "mount_pico.stl")
+analyze(stl_dir / "mount_bmp.stl")
 print("fit checks passed")
 PY

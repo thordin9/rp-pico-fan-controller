@@ -1,6 +1,6 @@
 # FreeCAD enclosure models
 
-Parametric PartDesign models of the six printable parts, matching the OpenSCAD in [`../scad/`](../scad/). One `PartDesign::Body` per file, sketches on datum planes, driven by a `Params` spreadsheet.
+Parametric PartDesign models of the printable parts, matching the OpenSCAD in [`../scad/`](../scad/). One `PartDesign::Body` per file, sketches on datum planes, driven by a `Params` spreadsheet.
 
 Built and checked with **FreeCAD 1.1.4** (`freecadcmd`, pin `1.1.4`). The script exits if the interpreter is any other version.
 
@@ -9,24 +9,25 @@ Built and checked with **FreeCAD 1.1.4** (`freecadcmd`, pin `1.1.4`). The script
 | File | Contents |
 | --- | --- |
 | `pico_case_base.FCStd`, `pico_case_lid.FCStd` | Pico W case |
-| `bmp280_int_body.FCStd`, `bmp280_int_lid.FCStd` | Internal BMP280 housing |
-| `bmp280_ext_body.FCStd`, `bmp280_ext_lid.FCStd` | External BMP280 housing |
+| `bmp280_int_body.FCStd`, `bmp280_ext_body.FCStd` | Sensor body, printed twice. Same solid; the sheet records the variant |
+| `bmp280_int_lid.FCStd`, `bmp280_ext_lid.FCStd` | Sensor lids. Same shape; the debossed label is INT or EXT |
+| `mount_pico.FCStd`, `mount_bmp.FCStd` | Optional slide-on wall brackets |
 | [`build.py`](build.py) | Headless generator and checker |
 | [`step/`](step/) | STEP from the FreeCAD solid |
 | [`stl/`](stl/) | STL from the FreeCAD solid |
 | [`renders/`](renders/) | PNG previews of those STLs |
 | [`dof-report.txt`](dof-report.txt) | Per-sketch solver report from the last run |
 
-The OpenSCAD meshes used as the reference stay in [`../stl/`](../stl/). This directory does not replace them.
+The OpenSCAD meshes used as the reference stay in [`../stl/`](../stl/). This directory does not replace them. The lid-closed OLED view and the section through the window are OpenSCAD previews in [`../renders/`](../renders/), because the dummy OLED is not a printed solid.
 
 ## Open a part and edit the spreadsheet
 
 1. Install FreeCAD 1.1.4 and open an `.FCStd`.
 2. The model is the body labelled with the part name. `Params` is the spreadsheet.
-3. Column A is the name, column B is the value in millimetres, column C notes where the number came from. Each value cell has an alias, so a sketch constraint reads `Params.wall` (and the same for the other names). Names follow [`../scad/dimensions.scad`](../scad/dimensions.scad) wherever that file defines the number. Derived pockets are formulas in the sheet (`fit_clearance`, lid outline, boss height, and so on).
+3. Column A is the name, column B is the value in millimetres, column C notes where the number came from. Each value cell has an alias, so a sketch constraint reads `Params.wall` (and the same for the other names). Names follow [`../scad/dimensions.scad`](../scad/dimensions.scad) wherever that file defines the number. Derived pockets are formulas in the sheet.
 4. Change a cell in column B and recompute (**Std Refresh**). Pad and pocket lengths, and every sketch constraint that corresponds to a named dimension, are bound to those aliases and follow the sheet.
 
-Datum planes are placed by `build.py` when it generates the file. They are attached to the origin planes (`XY_Plane`, `XZ_Plane`, `YZ_Plane`), not to generated faces. A change that moves a plane (floor thickness, the Z of a slot, boss height) is applied by regenerating the file, not by the spreadsheet recompute alone.
+Datum planes are placed by `build.py` when it generates the file. They are attached to the origin planes (`XY_Plane`, `XZ_Plane`, `YZ_Plane`), not to generated faces. A change that moves a plane (floor thickness, the Z of a slot) is applied by regenerating the file, not by the spreadsheet recompute alone.
 
 ## Rebuild, check, and export
 
@@ -51,11 +52,10 @@ From the GUI, select the body and use **File → Export** for STEP or STL of the
 ## What differs from the OpenSCAD solids
 
 - A stadium in OpenSCAD is a true semicircle at each end. A fillet of exactly half the height deletes the short edge, and the solver then rejects the sketch. Those profiles are rounded rectangles with a 0.04 mm flat (`stadium_flat`). The part bounding box does not move.
-- The external BMP280 louvers are ruled lofts between those profiles. That solid is 47.6 mm³ (0.46%) above the OpenSCAD mesh. The bounding box matches, and the louver, awning, cable, and boss probe points match the mesh.
+- The OLED window is a subtractive loft between the outer chamfer rectangle and the active-area rectangle. Both sketches are fully constrained.
 - Debossed labels (FAN, INT, EXT, PWR on the Pico base, INT or EXT on the sensor lids) are Liberation Sans Bold shape-strings, the same family as `lib.scad`, cut with a PartDesign boolean. They are not sketches, so they are not in the DOF report. The build fails if a label removes no material.
-- The other five parts are within 10 mm³ of the OpenSCAD mesh volume. Every part's bounding box matches to 0.01 mm.
-
-Walls, floors, inserts, and clearances are the OpenSCAD values (2.0 mm walls and floors, M2 insert bores, M2/M3 clearance holes). The 0.04 mm stadium flat is not a printable feature.
+- Walls are 1.6 mm, floor and lid 1.2 mm. There is no awning, no louver loft, and no fixed ear. The bracket is its own body.
+- On the last check, every bounding box matched the OpenSCAD mesh to 0.00 mm. Volume deltas were −3.9 mm³ (Pico base), +11.1 mm³ (Pico lid, 0.36%), −3.5 mm³ (both sensor bodies), about −1.5 mm³ (sensor lids), and −12.3 mm³ (both brackets). All of those are inside the pass rule. 151 sketches, each at 0 degrees of freedom, none redundant or conflicting.
 
 ## CI
 
