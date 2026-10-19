@@ -1,7 +1,9 @@
 # Per-fan PWM control + Prometheus exporter
 
+> **Historical.** This spec was written before Basic Auth, the BMP280 sensors, the OLED, the pressure loop, and sensor-fault handling. The fan pin map (GP15–GP18 PWM, GP14–GP11 tach, 25 kHz, 10 kΩ tach pull-ups to 3V3) is still the wiring. Current behaviour is the [README](../../../README.md), [how it works](../../how-it-works.md), and the [API reference](../../api.md).
+
 **Date:** 2026-10-14  
-**Status:** Approved for implementation planning  
+**Status:** Superseded. Kept as the implementation record for the first per-fan firmware.  
 **Hardware:** Raspberry Pi Pico W, up to four 4-pin 12 V PWM fans
 
 ## Goal

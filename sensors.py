@@ -4,7 +4,8 @@ The default is two buses, both at address 0x76: internal on I2C0 (GP4/GP5,
 shared with the OLED) and external on I2C1 (GP6/GP7). A module that can
 strap SDO to 3V3 may instead share I2C0 at 0x77. Reads never raise: a
 missing or failed part is reported and the fan loop keeps using the die
-temperature. The pressure trim runs only while both reads are ok.
+temperature. The pressure trim runs only while both sensors are ok and the
+pressure difference is inside the configured limit.
 """
 
 import bmp280

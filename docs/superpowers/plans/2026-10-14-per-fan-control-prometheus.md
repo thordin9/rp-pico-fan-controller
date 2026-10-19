@@ -1,5 +1,7 @@
 # Per-fan Control + Prometheus Implementation Plan
 
+> **Historical.** This plan implemented the first per-fan firmware. Later work added Basic Auth, BMP280 sensors on two I2C buses, the OLED, a pressure loop that is on by default, exhaust idle lifted to 18%, and sensor faults. Do not treat the constraints below as the current defaults. Current behaviour is the [README](../../../README.md) and [how it works](../../how-it-works.md).
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** Replace shared PWM with per-fan PWM (auto thermal or manual web override with flash persistence) and add a Prometheus `/metrics` endpoint plus a control UI.

@@ -1,9 +1,11 @@
 """128x32 OLED pages for the fan controller.
 
 Four text rows of 8 px fit on the Waveshare 0.91 inch panel (16 characters).
-Pages rotate every ``page_s`` seconds. The framebuffer is updated from the
-1 s sample, not from the 10 ms poll, so a 512-byte I2C write cannot steal
-the control cadence. A missing panel or a failed write is logged and ignored.
+Four pages rotate every ``page_s`` seconds. A fifth SENSOR FAULT page is
+added only while a sensor fault is latched. The framebuffer is updated from
+the 1 s sample, not from the 10 ms poll, so a 512-byte I2C write cannot
+steal the control cadence. A missing panel or a failed write is logged and
+ignored.
 """
 
 import ssd1306

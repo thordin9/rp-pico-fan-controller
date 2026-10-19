@@ -3,6 +3,11 @@ Local settings for the Pico W fan controller.
 
 Edit WIFI_SSID / WIFI_PASSWORD before flashing. Do not commit real secrets
 to a public fork — keep this file private or use placeholders in shared remotes.
+
+Every name in this file is listed in docs/config.md. settings.py checks the
+values at boot and substitutes a safe default when one is invalid. The
+thermal-curve temperatures (35 °C and 55 °C) and the 18% floor live in
+fan.py, not here.
 """
 
 # Wi-Fi (Pico W station mode). Leave placeholders to skip networking.

@@ -25,7 +25,7 @@ A missing or failed peripheral must not stop fan control or the watchdog.
 | Temperature source | Internal BMP280 while its latest read is ok; otherwise RP2040 die, including after a runtime failure. Boot uses the die sensor |
 | Airflow | Fans 1–2 intake, 3–4 exhaust. Static exhaust = clamp(curve × 0.85 + 0), then any result in (0, 18%) is lifted to 18%. Duty 0 stays off. Manual ignores the rule |
 | Pressure loop | On. Each 1 s sample adds `gain * (delta_pa - 5 Pa)` to the static exhaust duty, gain 0.0005, trim capped at ±5% duty. Not an integrator. If either sensor fails, the trim is skipped and the static ratio remains |
-| OLED | Four pages, 3 s, updated only on the 1 s sample. 512-byte framebuffer |
+| OLED | Four rotating pages, 3 s, updated only on the 1 s sample, plus a fifth SENSOR FAULT page while a fault is latched. 512-byte framebuffer |
 | Failure policy | Log on change, keep the previous fan duty path (die fallback), feed the watchdog around the sample |
 | Compensation | Bosch BST-BMP280-DS001 section 3.11.3 integer formula, not the double-precision appendix |
 
@@ -46,15 +46,16 @@ Power each BMP280 from Pico 3V3 (1.8–3.3 V). Tie CSB to 3V3 so the chip stays 
 ## Architecture
 
 ```text
-config.py      Wi-Fi, auth, watchdog, BMP280, OLED, airflow
+config.py      Wi-Fi, auth, watchdog, BMP280, OLED, airflow, fault thresholds
 settings.py    Validate config; disable a bad peripheral; never retarget fan pins
+faults.py      Range, jump, stuck, stale, tach, and pressure-delta checks
 bmp280.py      One BMP280: id check, reset, calib, normal mode, integer compensation
 sensors.py     BusPool (one machine.I2C per id) and SensorHub
 ssd1306.py     I2C SSD1306, MIT attribution to micropython-lib. No SPI, no framebuf
-display.py     8×8 font, four pages, rotation
-fan.py         Curve, roles, ratio/offset, optional pressure trim, status fields
+display.py     8×8 font, four pages plus a SENSOR FAULT page while a fault is latched
+fan.py         Curve, roles, ratio/offset, pressure trim, status fields
 web.py         HTML + /status.json, Basic Auth unchanged
-metrics.py     Prometheus gauges, pressure in pascals
+metrics.py     Prometheus gauges, pressure in pascals, sensor-fault series
 main.py        prepare_fans before Wi-Fi; arm WDT; then open peripherals; 1 s sample
 ```
 
@@ -77,7 +78,7 @@ The published integer example (adc_T 519888, adc_P 415148, the usual dig_* set) 
 
 Intake auto duty is the curve duty (18% floor at ≤35 °C, 100% at ≥55 °C). Exhaust auto duty is `clamp(base * ratio + offset)`, then `lift_exhaust_idle`: any result in `(0, MIN_SPEED)` becomes `MIN_SPEED`. Duty 0 stays off and does not alarm.
 
-The raw idle product 0.18 × 0.85 = 0.153 sits 0.3 points above `STALL_DUTY_MIN` 0.15. A fan that does not spin there raises a stall that looks like a fault. Holding idle exhaust at 18% matches the intake floor, so a stopped exhaust fan is the same kind of stall as a stopped intake fan. Above the floor the ratio still biases exhaust (50% → 42.5%, 100% → 85%).
+The raw idle product 0.18 × 0.85 = 0.153 sits 0.3 percentage points above `STALL_DUTY_MIN` 0.15. A fan that does not spin there raises a stall that looks like a fault. Holding idle exhaust at 18% matches the intake floor, so a stopped exhaust fan is the same kind of stall as a stopped intake fan. Above the floor the ratio still biases exhaust (50% → 42.5%, 100% → 85%).
 
 ### Pressure loop
 
@@ -96,11 +97,12 @@ The trim is recomputed from the static duty every 1 s sample. It is not summed a
 Page 0: IP (or Wi-Fi state), `src internal` / `src die`, control temperature, pressure delta plus `on` / `idle` / `off`.  
 Page 1: `1I   820  18%` with `m` for manual and `!` for stall.  
 Page 2: internal BMP280. Page 3: external BMP280.  
+A fifth page, `SENSOR FAULT`, is inserted only while a fault is latched. `display.PAGE_COUNT` stays 4; the page list is built when the framebuffer updates.  
 16 columns × 4 rows. `show()` prefers `I2C.writevto`; otherwise it writes a preallocated `0x40` frame.
 
 ### Status and metrics
 
-Status keys: `control_c`, `temp_source`, `pressure_delta_pa` (null if unknown), `pressure_loop_enabled`, `pressure_loop_active`, `sensors.internal` / `sensors.external` (`enabled`, `ok`, `chip_id`, `temp_c`, `pressure_pa`, `error`), `oled`, `fans[].role`.
+Status keys: `control_c`, `temp_source`, `pressure_delta_pa` (null if unknown), `pressure_loop_enabled`, `pressure_loop_active`, `sensors.internal` / `sensors.external` (`enabled`, `ok`, `chip_id`, `temp_c`, `pressure_pa`, `error`, `fault`, `fault_reason`), `oled`, `fans[].role`, `faults`, `fault_counts`. The short web strings are `short` and `short_reason`.
 
 Gauges: `pico_fan_bmp280_up`, `pico_fan_bmp280_temperature_celsius`, `pico_fan_bmp280_pressure_pascals` (label `location`), `pico_fan_pressure_delta_pascals`, `pico_fan_pressure_loop_enabled`, `pico_fan_pressure_loop_active`, `pico_fan_control_temp_celsius`, `pico_fan_temp_source_info`, `pico_fan_intake`, `pico_fan_oled_up`. Temperature and pressure samples are omitted when the sensor is not ok.
 
