@@ -23,19 +23,26 @@ class TestSettings(unittest.TestCase):
         self.assertFalse(loaded["internal_enabled"])
         self.assertFalse(loaded["external_enabled"])
         self.assertFalse(loaded["oled_enabled"])
-        self.assertFalse(loaded["pressure_loop_enabled"])
+        self.assertTrue(loaded["pressure_loop_enabled"])
+        self.assertAlmostEqual(loaded["pressure_loop_gain"], 0.0005)
+        self.assertAlmostEqual(loaded["pressure_trim_max"], 0.05)
         self.assertEqual(loaded["internal_addr"], 0x76)
-        self.assertEqual(loaded["external_addr"], 0x77)
+        self.assertEqual(loaded["internal_i2c_id"], 0)
         self.assertEqual(loaded["internal_sda"], 4)
         self.assertEqual(loaded["internal_scl"], 5)
+        self.assertEqual(loaded["external_addr"], 0x76)
+        self.assertEqual(loaded["external_i2c_id"], 1)
+        self.assertEqual(loaded["external_sda"], 6)
+        self.assertEqual(loaded["external_scl"], 7)
         self.assertEqual(loaded["oled_addr"], 0x3C)
+        self.assertEqual(loaded["oled_i2c_id"], 0)
         self.assertEqual(
             loaded["fan_roles"], ("intake", "intake", "exhaust", "exhaust")
         )
         self.assertAlmostEqual(loaded["exhaust_ratio"], 0.85)
         self.assertAlmostEqual(loaded["exhaust_offset"], 0.0)
 
-    def test_enabling_all_three_on_the_default_bus_is_valid(self):
+    def test_enabling_all_three_uses_two_buses_at_0x76(self):
         loaded, errors = settings.load_settings(
             _ns(
                 INTERNAL_BMP280_ENABLED=True,
@@ -47,8 +54,29 @@ class TestSettings(unittest.TestCase):
         self.assertTrue(loaded["internal_enabled"])
         self.assertTrue(loaded["external_enabled"])
         self.assertTrue(loaded["oled_enabled"])
-        self.assertEqual(loaded["oled_addr"], 0x3C)
+        self.assertEqual(loaded["internal_addr"], 0x76)
+        self.assertEqual(loaded["external_addr"], 0x76)
+        self.assertEqual(loaded["internal_i2c_id"], 0)
+        self.assertEqual(loaded["external_i2c_id"], 1)
+        self.assertEqual((loaded["oled_sda"], loaded["oled_scl"]), (4, 5))
+        self.assertEqual((loaded["external_sda"], loaded["external_scl"]), (6, 7))
+
+    def test_shared_bus_0x77_is_still_valid(self):
+        loaded, errors = settings.load_settings(
+            _ns(
+                INTERNAL_BMP280_ENABLED=True,
+                EXTERNAL_BMP280_ENABLED=True,
+                EXTERNAL_BMP280_ADDR=0x77,
+                EXTERNAL_BMP280_I2C_ID=0,
+                EXTERNAL_BMP280_SDA=4,
+                EXTERNAL_BMP280_SCL=5,
+                OLED_ENABLED=True,
+            )
+        )
+        self.assertEqual(errors, [])
+        self.assertTrue(loaded["external_enabled"])
         self.assertEqual(loaded["external_addr"], 0x77)
+        self.assertEqual(loaded["external_i2c_id"], 0)
 
     def test_missing_module_uses_defaults(self):
         loaded, errors = settings.load_settings(None)
@@ -61,6 +89,9 @@ class TestSettings(unittest.TestCase):
                 INTERNAL_BMP280_ENABLED=True,
                 EXTERNAL_BMP280_ENABLED=True,
                 EXTERNAL_BMP280_ADDR=0x76,
+                EXTERNAL_BMP280_I2C_ID=0,
+                EXTERNAL_BMP280_SDA=4,
+                EXTERNAL_BMP280_SCL=5,
                 OLED_ENABLED=True,
                 OLED_SDA=15,
                 OLED_SCL=8,
@@ -119,7 +150,7 @@ class TestSettings(unittest.TestCase):
             loaded["fan_roles"], ("intake", "intake", "exhaust", "exhaust")
         )
         self.assertAlmostEqual(loaded["exhaust_ratio"], 0.85)
-        self.assertFalse(loaded["pressure_loop_enabled"])
+        self.assertTrue(loaded["pressure_loop_enabled"])
         self.assertFalse(loaded["internal_enabled"])
         text = " ".join(errors)
         self.assertIn("FAN_ROLES", text)

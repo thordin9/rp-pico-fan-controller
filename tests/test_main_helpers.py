@@ -104,7 +104,9 @@ class TestSamplePeripherals(unittest.TestCase):
         self.assertEqual(feeds, [1, 1])
         self.assertEqual(ctrl.temp_source, "internal")
         self.assertAlmostEqual(ctrl.duties[0], 1.0)
-        self.assertAlmostEqual(ctrl.duties[2], 0.85)
+        # 1000 Pa above the 5 Pa target hits the +5% trim cap, not 100% duty.
+        self.assertAlmostEqual(ctrl.duties[2], 0.90)
+        self.assertTrue(ctrl.pressure_loop_active)
         self.assertEqual(ctrl.pressure_delta_pa, 1000.0)
         self.assertEqual(panel.calls, 1)
         self.assertEqual(panel.seen_source, "internal")

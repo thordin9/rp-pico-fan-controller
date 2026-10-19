@@ -20,10 +20,10 @@ DEFAULTS = {
     "internal_sda": 4,
     "internal_scl": 5,
     "external_enabled": False,
-    "external_addr": 0x77,
-    "external_i2c_id": 0,
-    "external_sda": 4,
-    "external_scl": 5,
+    "external_addr": 0x76,
+    "external_i2c_id": 1,
+    "external_sda": 6,
+    "external_scl": 7,
     "oled_enabled": False,
     "oled_addr": 0x3C,
     "oled_i2c_id": 0,
@@ -35,9 +35,10 @@ DEFAULTS = {
     "fan_roles": fan.DEFAULT_ROLES,
     "exhaust_ratio": fan.DEFAULT_EXHAUST_RATIO,
     "exhaust_offset": fan.DEFAULT_EXHAUST_OFFSET,
-    "pressure_loop_enabled": False,
+    "pressure_loop_enabled": True,
     "pressure_target_pa": fan.DEFAULT_PRESSURE_TARGET_PA,
     "pressure_loop_gain": fan.DEFAULT_PRESSURE_LOOP_GAIN,
+    "pressure_trim_max": fan.DEFAULT_PRESSURE_TRIM_MAX,
 }
 
 # config.py names, in the order a shared bus is claimed.
@@ -74,6 +75,7 @@ _ATTRS = {
     "pressure_loop_enabled": "PRESSURE_LOOP_ENABLED",
     "pressure_target_pa": "PRESSURE_TARGET_PA",
     "pressure_loop_gain": "PRESSURE_LOOP_GAIN",
+    "pressure_trim_max": "PRESSURE_LOOP_TRIM_MAX",
 }
 
 
@@ -121,6 +123,7 @@ def load_settings(module):
     _check_number(settings, errors, "exhaust_offset", -1.0, 1.0, False)
     _check_number(settings, errors, "pressure_target_pa", -10000.0, 10000.0, False)
     _check_number(settings, errors, "pressure_loop_gain", -1.0, 1.0, False)
+    _check_number(settings, errors, "pressure_trim_max", 0.0, 0.5, False)
 
     height = settings["oled_height"]
     if _is_int(height) and height % 8 != 0:

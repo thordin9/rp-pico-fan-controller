@@ -53,10 +53,10 @@ Classic Pico (no radio) still runs fan control; Wi-Fi simply stays disabled.
 | Fan 4 tach | **GP11** | Fan 4 pin 3 + **10 kΩ** pull-up to 3V3 |
 | Die temperature | **ADC(4)** | On-chip; no external wire |
 | Onboard LED | `LED` / GP25 | Status blink. Do not reuse GP25 |
-| I2C0 SDA (default) | **GP4** | Internal BMP280, external BMP280, OLED |
-| I2C0 SCL (default) | **GP5** | Same bus |
-| I2C1 SDA (spare) | **GP6** | Second bus when a BMP280 address cannot move |
-| I2C1 SCL (spare) | **GP7** | Second bus |
+| I2C0 SDA | **GP4** | Internal BMP280 and OLED |
+| I2C0 SCL | **GP5** | Internal BMP280 and OLED |
+| I2C1 SDA | **GP6** | External BMP280 |
+| I2C1 SCL | **GP7** | External BMP280 |
 
 **USB alternative:** plugging USB powers the board via **VBUS** instead of the external 5 V → VSYS path. Prefer **one** power method at a time for bench setups.
 
@@ -182,34 +182,35 @@ Both BMP280s and the OLED are **disabled by default**. Fan control does not open
 
 | Part | Role | Default |
 |------|------|---------|
-| Bosch BMP280 module (for example HandsOn GY-BMP280) | Internal: enclosure air | Off, address **0x76**, I2C0 |
-| Second BMP280 | External: outside air | Off, address **0x77**, I2C0 |
-| Waveshare 0.91 inch SSD1306 | 128×32 I2C OLED | Off, address **0x3C**, I2C0 |
+| Bosch BMP280 module (for example HandsOn GY-BMP280) | Internal: enclosure air | Off, address **0x76**, I2C0 GP4/GP5 |
+| Second BMP280, also hardwired to 0x76 | External: outside air | Off, address **0x76**, I2C1 GP6/GP7 |
+| Waveshare 0.91 inch SSD1306 | 128×32 I2C OLED | Off, address **0x3C**, I2C0 GP4/GP5 |
 
 The OLED module is four pins: VCC, GND, DIN (SDA), CLK (SCL). It has no backlight. A static image can burn in; the firmware rotates pages so the same pixels are not held for the whole run.
 
 ### BMP280 pins
 
-| BMP280 | Connect to | Why |
-|--------|------------|-----|
-| VCC | Pico **3V3** | 1.8–3.3 V module. Not 5 V, not VSYS |
-| GND | Pico **GND** | Common with the Pico |
-| SDA | **GP4** (default) | I2C data. Needs a pull-up to 3V3 |
-| SCL | **GP5** (default) | I2C clock. Needs a pull-up to 3V3 |
-| CSB | Pico **3V3** | High at power-up selects I2C. A low CSB locks the chip in SPI until power is removed |
-| SDO | **GND** → address **0x76**, **3V3** → address **0x77** | Do not leave SDO floating |
+| Signal | Internal BMP280 | External BMP280 | Why |
+|--------|-----------------|-----------------|-----|
+| VCC | Pico **3V3** | Pico **3V3** | 1.8–3.3 V. Not 5 V, not VSYS |
+| GND | Pico **GND** | Pico **GND** | Common with the Pico |
+| SDA | **GP4** | **GP6** | Needs a pull-up to 3V3 on that bus |
+| SCL | **GP5** | **GP7** | Needs a pull-up to 3V3 on that bus |
+| CSB | Pico **3V3** | Pico **3V3** | High at power-up selects I2C. A low CSB locks SPI until power is removed |
+| SDO | **GND** (0x76) | **GND** (0x76) | Do not leave SDO floating. Do not short a hardwired SDO to 3V3 |
 
-The HandsOn GY-BMP280 guide states that module's address is hardwired to **0x76** (SDO tied to GND on the PCB). If you cannot lift that strap, do not short SDO to 3V3. Put the external sensor on the second bus instead:
+The HandsOn GY-BMP280 guide states that module's address is hardwired to **0x76** (SDO tied to GND on the PCB). The default wiring assumes **both** modules are like that, so they cannot share a bus. Each bus is scanned on its own pins.
+
+If a module's SDO is a free header and you can tie it to 3V3, that sensor becomes **0x77** and may share I2C0 with the internal sensor and the OLED:
 
 ```python
-EXTERNAL_BMP280_ENABLED = True
-EXTERNAL_BMP280_ADDR = 0x76
-EXTERNAL_BMP280_I2C_ID = 1
-EXTERNAL_BMP280_SDA = 6
-EXTERNAL_BMP280_SCL = 7
+EXTERNAL_BMP280_ADDR = 0x77
+EXTERNAL_BMP280_I2C_ID = 0
+EXTERNAL_BMP280_SDA = 4
+EXTERNAL_BMP280_SCL = 5
 ```
 
-Modules often include about **10 kΩ** pull-ups on SDA and SCL. Those are enough for a short bus. If `scan()` finds nothing, add **4.7 kΩ** from SDA to 3V3 and from SCL to 3V3. Several modules in parallel can share pull-ups; keep the combined value above about **2 kΩ**. The RP2040's internal pull-ups are too weak to rely on.
+Modules often include about **10 kΩ** pull-ups on SDA and SCL. Those are enough for a short bus. If `scan()` finds nothing, add **4.7 kΩ** from that bus's SDA to 3V3 and from SCL to 3V3. The internal BMP280 and the OLED share I2C0, so their pull-ups are in parallel; keep the combined value above about **2 kΩ**. The external bus has its own pair. The RP2040's internal pull-ups are too weak to rely on.
 
 Keep the external sensor cable short, about **under 50 cm**. Run SDA and SCL with a GND wire. Drop `I2C_FREQ` (default 100 kHz) if a longer cable is noisy. Do not route the I2C pair next to the 25 kHz fan PWM lines.
 
@@ -227,22 +228,28 @@ The usual Waveshare address is **0x3C**. If a scan shows **0x3D**, set `OLED_ADD
 ### Default wiring
 
 ```text
-  Pico 3V3 ----+----------+----------+----------+
-               |          |          |          |
-               |         4k7        4k7         |     (add if the modules
-               |          |          |          |      have no pull-ups)
-               |         SDA        SCL         |
-               |          |          |          |
-               +-- BMP280 internal SDA/SCL -----+---- GP4 / GP5
-               +-- BMP280 external SDA/SCL -----+
-               +-- OLED DIN/CLK ----------------+
-               |
-  Pico 3V3 ----+-- BMP280 internal VCC, CSB
-               +-- BMP280 external VCC, CSB, SDO   (SDO high = 0x77)
-               +-- OLED VCC
-  Pico GND ----+-- all GND, and internal SDO       (SDO low = 0x76)
+  I2C0 (internal BMP280 0x76 + OLED 0x3C)
+  Pico 3V3 ----+--------+--------+
+               |       4k7      4k7     (add if those modules have no pull-ups)
+               |        |        |
+              SDA      SCL       |
+               |        |        |
+               +-- internal BMP280 SDA/SCL -- GP4 / GP5
+               +-- OLED DIN/CLK ------------ GP4 / GP5
+  Pico 3V3 ---- internal VCC, CSB, and OLED VCC
+  Pico GND ---- internal GND, SDO, and OLED GND
 
-  Fans stay on GP15-18 (PWM) and GP14-11 (tach). Do not move them onto GP4/GP5.
+  I2C1 (external BMP280 0x76)
+  Pico 3V3 ----+--------+
+               |       4k7      4k7
+               |        |        |
+              SDA      SCL       |
+               |        |
+               +-- external BMP280 SDA/SCL -- GP6 / GP7
+  Pico 3V3 ---- external VCC and CSB
+  Pico GND ---- external GND and SDO
+
+  Fans stay on GP15-18 (PWM) and GP14-11 (tach).
 ```
 
 ```mermaid
@@ -250,8 +257,10 @@ flowchart LR
   subgraph PICO["Pico W"]
     V33["3V3"]
     GND["GND"]
-    SDA["GP4 SDA"]
-    SCL["GP5 SCL"]
+    SDA0["GP4 SDA"]
+    SCL0["GP5 SCL"]
+    SDA1["GP6 SDA"]
+    SCL1["GP7 SCL"]
   end
   subgraph INT["Internal BMP280 0x76"]
     IVCC["VCC + CSB"]
@@ -259,8 +268,9 @@ flowchart LR
     ISDA["SDA"]
     ISCL["SCL"]
   end
-  subgraph EXT["External BMP280 0x77"]
-    EVCC["VCC + CSB + SDO"]
+  subgraph EXT["External BMP280 0x76"]
+    EVCC["VCC + CSB"]
+    ESDO["SDO to GND"]
     ESDA["SDA"]
     ESCL["SCL"]
   end
@@ -275,12 +285,12 @@ flowchart LR
   GND --> INT
   GND --> EXT
   GND --> OLED
-  SDA --> ISDA
-  SDA --> ESDA
-  SDA --> OSDA
-  SCL --> ISCL
-  SCL --> ESCL
-  SCL --> OSCL
+  SDA0 --> ISDA
+  SDA0 --> OSDA
+  SCL0 --> ISCL
+  SCL0 --> OSCL
+  SDA1 --> ESDA
+  SCL1 --> ESCL
 ```
 
 ---
@@ -307,17 +317,32 @@ Die temperature is the average of 8 `ADC(4)` samples. Tach edges closer than 1 m
 
 ## Positive pressure
 
-Default roles are **intake, intake, exhaust, exhaust** (fans 1–2 pull air in, fans 3–4 push it out). In auto mode the exhaust duty is:
+Default roles are **intake, intake, exhaust, exhaust** (fans 1–2 pull air in, fans 3–4 push it out). In auto mode the exhaust duty starts from:
 
 ```text
-exhaust = clamp(intake_duty * AIRFLOW_EXHAUST_RATIO + AIRFLOW_EXHAUST_OFFSET, 0, 1)
+static = clamp(intake_duty * AIRFLOW_EXHAUST_RATIO + AIRFLOW_EXHAUST_OFFSET, 0, 1)
 ```
 
-Defaults are ratio **0.85** and offset **0**. At the 18% idle floor that is **15.3%** exhaust. That is just above the 15% stall threshold, so a fan that does not actually spin at 15.3% will raise a stall alarm. Raise `AIRFLOW_EXHAUST_RATIO` (or lower `STALL_DUTY_MIN` only if you mean to) rather than expecting the exhaust to be lifted back to 18%. The bias is supposed to stay visible. Intake duty still has the 18% floor. Manual mode ignores role, ratio, offset, and the pressure trim.
+Defaults are ratio **0.85** and offset **0**. At the 18% intake floor that product is **15.3%**, which is only just above the 15% stall threshold. A healthy fan may not spin at 15.3%, and the stall alarm would fire anyway. Auto exhaust is therefore lifted to **18%** whenever the formula lands in `(0, 18%)`. Duty **0%** is left at 0 and does not alarm. Once the curve is above that floor the bias shows up: 50% intake becomes **42.5%** exhaust, and 100% intake becomes **85%** exhaust. Manual mode ignores role, ratio, offset, and the pressure trim.
 
 With both BMP280s reading, status and metrics report `pressure_delta_pa` = internal pressure minus external pressure, in pascals. A positive value means the enclosure is above outside pressure.
 
-`PRESSURE_LOOP_ENABLED` is **False**. Turn it on only if you want a simple trim: while both sensors are ok, exhaust duty also adds `PRESSURE_LOOP_GAIN * (delta_pa - PRESSURE_TARGET_PA)`, then clamps to 0..1. Defaults are target **5 Pa** and gain **0.002** duty per pascal (about 2% duty for a 10 Pa error). Intake fans are not trimmed. If either sensor fails, the trim stops and the ratio/offset rule remains.
+`PRESSURE_LOOP_ENABLED` defaults to **True**. Each 1 s sample, while both sensors are ok, adds a trim to the static exhaust duty:
+
+```text
+trim = clamp(PRESSURE_LOOP_GAIN * (delta_pa - PRESSURE_TARGET_PA), -TRIM_MAX, +TRIM_MAX)
+exhaust = clamp(static + trim, 0, 1)
+```
+
+then lifts the result out of the `(0, 18%)` band again. Defaults are target **5 Pa**, gain **0.0005** duty per pascal (0.5% duty for a 10 Pa error), and trim cap **±0.05** (5% duty). The trim is computed from the static duty every sample. It does not accumulate, so a sensor offset cannot wind the fans up to the stops: a 100 Pa error is already at the cap, and the next sample starts over from the ratio. Intake fans are not trimmed.
+
+If either BMP280 is missing or the read fails, `pressure_delta_pa` is null, the trim is skipped, and exhaust stays on the static ratio. Status, the web page, the OLED (`on` / `idle` / `off` on the delta line), and the metrics say which:
+
+| State | `pressure_loop_enabled` | `pressure_loop_active` | Meaning |
+|-------|-------------------------|------------------------|---------|
+| off | false | false | Config turned the loop off |
+| idle | true | false | Loop is configured, but a sensor is missing or failed, so the static ratio is in use |
+| active | true | true | Both BMP280s are ok and the trim was applied this sample |
 
 ---
 
@@ -354,10 +379,10 @@ With both BMP280s reading, status and metrics report `pressure_delta_pa` = inter
    INTERNAL_BMP280_SCL = 5
 
    EXTERNAL_BMP280_ENABLED = False
-   EXTERNAL_BMP280_ADDR = 0x77
-   EXTERNAL_BMP280_I2C_ID = 0
-   EXTERNAL_BMP280_SDA = 4
-   EXTERNAL_BMP280_SCL = 5
+   EXTERNAL_BMP280_ADDR = 0x76
+   EXTERNAL_BMP280_I2C_ID = 1
+   EXTERNAL_BMP280_SDA = 6
+   EXTERNAL_BMP280_SCL = 7
 
    OLED_ENABLED = False
    OLED_ADDR = 0x3C
@@ -371,9 +396,10 @@ With both BMP280s reading, status and metrics report `pressure_delta_pa` = inter
    FAN_ROLES = ("intake", "intake", "exhaust", "exhaust")
    AIRFLOW_EXHAUST_RATIO = 0.85
    AIRFLOW_EXHAUST_OFFSET = 0.0
-   PRESSURE_LOOP_ENABLED = False
+   PRESSURE_LOOP_ENABLED = True
    PRESSURE_TARGET_PA = 5.0
-   PRESSURE_LOOP_GAIN = 0.002
+   PRESSURE_LOOP_GAIN = 0.0005
+   PRESSURE_LOOP_TRIM_MAX = 0.05
    ```
    A bad value is logged and replaced (the offending peripheral is disabled, or airflow falls back to these defaults). Fan PWM and tach pins are not reassigned. Two devices on the same I2C id must use the same SDA and SCL. The same address on one bus disables the later device; the same address on two buses is allowed.
 2. Leave `YOUR_SSID` to run **fan-only** (no radio join). Fans still spin up and follow the curve.
@@ -418,6 +444,8 @@ scrape_configs:
 | `control_c` | Temperature currently driving the auto curve |
 | `temp_source` | `internal` or `die` |
 | `pressure_delta_pa` | Internal Pa minus external Pa, or `null` |
+| `pressure_loop_enabled` | Config flag |
+| `pressure_loop_active` | True only on a sample that applied the trim |
 | `sensors.internal` / `sensors.external` | `enabled`, `ok`, `chip_id`, `temp_c`, `pressure_pa`, `error` |
 | `oled` | `enabled`, `ok`, `error` |
 | `fans[].role` | `intake` or `exhaust` |
@@ -432,12 +460,14 @@ Prometheus additions (temperature in Celsius, pressure in pascals):
 | `pico_fan_bmp280_temperature_celsius` | `location`. Omitted while that sensor is not ok |
 | `pico_fan_bmp280_pressure_pascals` | `location`. Omitted while that sensor is not ok |
 | `pico_fan_pressure_delta_pascals` | Present only when both BMP280s are ok |
+| `pico_fan_pressure_loop_enabled` | 1 if the trim is enabled in config |
+| `pico_fan_pressure_loop_active` | 1 if this sample applied the trim |
 | `pico_fan_control_temp_celsius` | Curve input |
 | `pico_fan_temp_source_info` | `source="internal"` or `"die"`. 1 on the active source |
 | `pico_fan_intake` | `fan`. 1 intake, 0 exhaust |
 | `pico_fan_oled_up` | 1 when the OLED is enabled and the last update succeeded |
 
-The OLED, when enabled and present, rotates four pages every `OLED_PAGE_S` (default 3 s): link and source, the four fans (RPM and duty), internal BMP280, external BMP280. Updates happen on the 1 s sample, not on the 10 ms poll.
+The OLED, when enabled and present, rotates four pages every `OLED_PAGE_S` (default 3 s): link, temperature source, control temperature, and pressure delta with the loop word (`on`, `idle`, or `off`); the four fans (RPM and duty); internal BMP280; external BMP280. Updates happen on the 1 s sample, not on the 10 ms poll.
 
 Examples:
 
@@ -492,7 +522,7 @@ mpremote connect auto reset
 Serial log (1 Hz) example:
 
 ```text
-die= 30.2°C ctl= 28.4°C src=internal  dP=+12Pa  F1=a= 18%= 820 F2=m= 40%= 815 F3=a= 15%= 700 F4=a= 15%=   0!  wifi=connected
+die= 30.2°C ctl= 28.4°C src=internal  dP=+12Pa loop=on  F1=a= 18%= 820 F2=m= 40%= 815 F3=a= 42%= 700 F4=a= 42%=   0!  wifi=connected
 ```
 
 (`a` = auto, `m` = manual, trailing `!` = stall)
@@ -524,7 +554,7 @@ python3 -m unittest discover -s tests -v
 | [`metrics.py`](metrics.py) | Prometheus text |
 | [`config.py`](config.py) | Wi-Fi, auth, watchdog, stall, BMP280, OLED, airflow |
 | [`bmp280.py`](bmp280.py) | BMP280 compensation and chip-id check |
-| [`sensors.py`](sensors.py) | Shared I2C buses and the two BMP280s |
+| [`sensors.py`](sensors.py) | I2C buses and the two BMP280s |
 | [`display.py`](display.py) | OLED pages |
 | [`ssd1306.py`](ssd1306.py) | I2C SSD1306 driver (MIT, from micropython-lib) |
 | [`settings.py`](settings.py) | Config checks; bad values fall back to safe defaults |
@@ -549,18 +579,21 @@ From the REPL, after the firmware has started (or from a short script that const
 
 ```python
 from machine import I2C, Pin
-bus = I2C(0, sda=Pin(4), scl=Pin(5), freq=100000)
-print(bus.scan())
+bus0 = I2C(0, sda=Pin(4), scl=Pin(5), freq=100000)
+bus1 = I2C(1, sda=Pin(6), scl=Pin(7), freq=100000)
+print(bus0.scan())  # expect 0x76 (118) and 0x3C (60) with the OLED fitted
+print(bus1.scan())  # expect 0x76 (118)
 ```
 
 | What you see | What to do |
 |--------------|------------|
-| `[]` | Check 3V3 and GND, SDA/SCL not swapped, pull-ups to 3V3. CSB must be high before power-up |
-| `[118]` only (`0x76`) | Second module is also at 0x76, or it is not powered. Strap SDO to 3V3 only if the PCB does not already short SDO to GND; otherwise use I2C1 |
-| `[118, 119]` | Internal `0x76` and external `0x77`. Expected shared-bus pair |
-| `60` (`0x3C`) | OLED. Set `OLED_ADDR` if you see `0x3D` (61) instead |
-| Serial `chip id 0x.. is not BMP280 (0x58)` | That address answered, but it is not a BMP280. The sensor stays disabled until you fix the wiring and reboot |
-| Two devices, one log line about an address conflict | Same address on the same bus. The later device was turned off by `settings.py` |
+| `[]` on a bus | Check 3V3 and GND, SDA/SCL not swapped, pull-ups to 3V3 on **that** bus. CSB must be high before power-up. SDO must be at GND for 0x76 |
+| I2C0 `[118, 60]` and I2C1 `[118]` | Default pair: internal BMP280, OLED, external BMP280 |
+| I2C0 `[118, 119, 60]` | Shared-bus alternative: external SDO is at 3V3 (`0x77`). Set `EXTERNAL_BMP280_ADDR = 0x77` and move it onto I2C0 |
+| `61` (`0x3D`) | OLED address strap. Set `OLED_ADDR = 0x3D` |
+| Serial `chip id 0x.. is not BMP280 (0x58)` | That address answered, but it is not a BMP280. The sensor stays rejected until you fix the wiring and reboot |
+| Log line about an address conflict | Same address on the same bus. The later device was turned off by `settings.py`. Two modules at 0x76 belong on I2C0 and I2C1, which is the default |
+| `pressure_loop_active` stays 0 | One BMP280 is not `ok`. Exhaust is on the static ratio. The page shows the loop as idle |
 | Fans reboot every few seconds only after enabling a sensor | A stuck bus with no working timeout can block long enough to trip the 8 s watchdog. The reboot restores fan control. Fix the bus; do not raise the watchdog to hide it |
 
 Unplug a BMP280 or the OLED while running: the next sample logs the failure, `ok` goes false, and auto fans fall back to the die temperature. Plugging it back is picked up on a later sample, except a wrong chip id, which stays rejected.

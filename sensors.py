@@ -1,9 +1,10 @@
 """Internal and external BMP280s on one or two I2C buses.
 
-The default is one bus and two addresses (0x76 with SDO at GND, 0x77 with
-SDO at 3V3). A module whose address is stuck at 0x76 can instead take the
-second I2C controller. Reads never raise: a missing or failed part is
-reported and the fan loop keeps using the die temperature.
+The default is two buses, both at address 0x76: internal on I2C0 (GP4/GP5,
+shared with the OLED) and external on I2C1 (GP6/GP7). A module that can
+strap SDO to 3V3 may instead share I2C0 at 0x77. Reads never raise: a
+missing or failed part is reported and the fan loop keeps using the die
+temperature. The pressure trim runs only while both reads are ok.
 """
 
 import bmp280
