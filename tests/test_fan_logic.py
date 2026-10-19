@@ -239,6 +239,50 @@ class TestSignalConditioning(unittest.TestCase):
         self.assertTrue(fan.note_tach_pulse(counts, last, seen, 0, 6500, 1000))
         self.assertEqual(counts[0], 2)
 
+    def test_mean_adc_matches_average(self):
+        samples = [100, 200, 300, 50]
+        calls = {"i": 0}
+
+        def read():
+            raw = samples[calls["i"]]
+            calls["i"] += 1
+            return raw
+
+        self.assertEqual(fan.mean_adc(read, 4), fan.average_adc_raw(samples))
+        self.assertEqual(calls["i"], 4)
+        self.assertEqual(fan.mean_adc(read, 0), 0)
+
+    def test_tach_irq_handler_drops_close_edges(self):
+        counts = [0]
+        last = [0]
+        seen = bytearray(1)
+        clock = {"us": 10000}
+        had_us = hasattr(fan.time, "ticks_us")
+        had_diff = hasattr(fan.time, "ticks_diff")
+        prev_us = getattr(fan.time, "ticks_us", None)
+        prev_diff = getattr(fan.time, "ticks_diff", None)
+        fan.time.ticks_us = lambda: clock["us"]
+        fan.time.ticks_diff = fan.ticks_diff
+        try:
+            handler = fan._make_tach_handler(counts, last, seen, 0, 1000)
+            handler(None)
+            self.assertEqual(counts[0], 1)
+            clock["us"] = 10500
+            handler(None)
+            self.assertEqual(counts[0], 1)
+            clock["us"] = 12000
+            handler(None)
+            self.assertEqual(counts[0], 2)
+        finally:
+            if had_us:
+                fan.time.ticks_us = prev_us
+            else:
+                del fan.time.ticks_us
+            if had_diff:
+                fan.time.ticks_diff = prev_diff
+            else:
+                del fan.time.ticks_diff
+
     def test_tach_debounce_handles_ticks_wrap(self):
         counts = [0]
         last = [(1 << 30) - 100]

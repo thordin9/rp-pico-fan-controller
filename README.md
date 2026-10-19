@@ -6,7 +6,7 @@ MicroPython firmware for a **Raspberry Pi Pico W** that drives **up to four 4-pi
 - **Per-fan tach** on **GP14 / GP13 / GP12 / GP11** (rising IRQ, 2 pulses/rev → RPM each)
 - **Die temp** via **ADC(4)** — **not ambient air temperature**
 - **Auto / manual** per fan — manual overrides persist in `overrides.json` on the Pico
-- **Onboard LED** via `Pin("LED")` on Pico W (falls back to GP25 on classic Pico). Below 50% duty it blinks every 500 ms; at 50% or more it stays on
+- **Onboard LED** via `Pin("LED")` on Pico W (falls back to GP25 on classic Pico). Below 50% duty it toggles every 500 ms; at 50% or more it stays on
 - **Hardware watchdog** (`machine.WDT`, 8 s by default) fed from the main loop
 - **HTTP Basic Auth** on every endpoint, including `/metrics` (disable only by leaving the credentials empty)
 - **Ctrl+C fail-safe**: all PWM → 100%, LED on (does **not** wipe overrides). With the watchdog armed, the board then reboots into normal control
@@ -208,7 +208,9 @@ Die temperature is the average of 8 `ADC(4)` samples. Tach edges closer than 1 m
 
 Wi-Fi state (`wifi` in JSON, `pico_fan_wifi_up` in metrics) is refreshed from `isconnected()` about twice a second. Values are `connected`, `connecting`, `timeout`, `offline`, `disabled`, or `unsupported`. `pico_fan_wifi_up` is 1 only while `connected`. After a dropout the link is reported down immediately and `connect()` runs again once the link has stayed down for about a second; a failed attempt waits `WIFI_RETRY_S` before the next try. None of that blocks the 1 s fan loop.
 
-The hardware watchdog is armed **after** `wlan.active(True)` (that call can block) and is fed every pass of the main loop. The association wait itself does not sleep, so it cannot trip the watchdog. The RP2040 cannot turn a watchdog off; Ctrl+C still forces 100% PWM, then the board resets and boots back into normal control. Set `WDT_ENABLED = False` to keep the old "stop in the REPL at 100%" behavior.
+The hardware watchdog is armed **after** `wlan.active(True)` (that call can block) and is fed every pass of the main loop. The association wait itself does not sleep, so it cannot trip the watchdog. The RP2040 cannot turn a watchdog off; Ctrl+C still forces 100% PWM, then the board resets and boots back into normal control. Set `WDT_ENABLED = False` to keep the old "stop in the REPL at 100%" behavior. The 1 Hz status line is a normal `print`; if a USB serial session stops draining that stream, the print can block long enough to trip the watchdog. Close the serial port when you are not watching it, or disable the watchdog while debugging.
+
+Basic Auth is sent on every request in the clear. Use it on a trusted LAN; this firmware does not speak TLS.
 
 If `HTTP_USER` or `HTTP_PASSWORD` is empty, auth is off and the serial log prints a warning. When both are set, **every** path (UI, `/status.json`, `/api/fans…`, `/metrics`, and unknown URLs) returns **401** with `WWW-Authenticate: Basic realm="pico-fan"` until the credentials match. Set `METRICS_REQUIRE_AUTH = False` only when a scraper on a trusted LAN cannot send Basic Auth.
 

@@ -129,7 +129,6 @@ class WifiMonitor:
             pass
 
     def _begin(self, now_ms):
-        print("Wi-Fi: connecting to {!r}".format(self.ssid))
         self._disconnect()
         try:
             self.wlan.connect(self.ssid, self.password)
@@ -140,6 +139,13 @@ class WifiMonitor:
             self.ctrl.ip = ""
             self._next_attempt = ticks_add(now_ms, self.retry_ms)
             return
+        try:
+            if self.wlan.isconnected():
+                self._mark_connected()
+                return
+        except Exception as exc:
+            print("Wi-Fi: status error:", exc)
+        print("Wi-Fi: connecting to {!r}".format(self.ssid))
         self.state = "connecting"
         self.ctrl.wifi = "connecting"
         self.ctrl.ip = ""

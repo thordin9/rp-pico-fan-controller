@@ -146,6 +146,17 @@ class TestAuthAndValidation(unittest.TestCase):
         self.assertEqual(self.ctrl.modes[0], "auto")
         self.assertIsNone(self.ctrl._mem_overrides)
 
+    def test_basic_header_without_padding_still_matches(self):
+        token = base64.b64encode(b"pico:secret").decode().rstrip("=")
+        self.assertNotIn("=", token)
+        code, _body, _ctype = self.srv.dispatch(
+            "GET",
+            "/status.json",
+            b"",
+            {"Authorization": "Basic " + token},
+        )
+        self.assertEqual(code, 200)
+
     def test_password_may_contain_colon(self):
         srv = web.HttpServer(
             self.ctrl,

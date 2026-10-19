@@ -47,6 +47,17 @@ class TestWifiMonitor(unittest.TestCase):
         )
         self.mon.attach(self.wlan)
 
+    def test_already_associated_after_connect_is_connected(self):
+        def connect(ssid, password):
+            self.wlan.connects += 1
+            self.wlan.connected = True
+
+        self.wlan.connect = connect
+        self.mon.start_attempt(0)
+        self.assertEqual(self.ctrl.wifi, "connected")
+        self.assertEqual(self.ctrl.ip, "192.168.4.20")
+        self.assertEqual(self.wlan.connects, 1)
+
     def test_connect_is_nonblocking_and_reports_connecting(self):
         state = self.mon.start_attempt(1000)
         self.assertEqual(state, "connecting")

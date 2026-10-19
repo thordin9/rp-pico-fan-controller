@@ -134,8 +134,13 @@ def basic_credentials(header_value):
     parts = header_value.split(None, 1)
     if len(parts) != 2 or parts[0].lower() != b"basic":
         return None
+    token = parts[1].strip()
+    # Some stacks omit "=" padding. MicroPython's a2b_base64 wants it.
+    pad = (-len(token)) % 4
+    if pad:
+        token += b"=" * pad
     try:
-        decoded = binascii.a2b_base64(parts[1].strip())
+        decoded = binascii.a2b_base64(token)
     except Exception:
         return None
     if b":" not in decoded:
@@ -199,7 +204,9 @@ def request_progress(buf, max_header=MAX_HEADER_BYTES, max_body=MAX_BODY_BYTES):
     Returns ('need-data', None), ('oversize', None), ('bad', None),
     or ('ready', (method, path, headers, body)).
     """
-    if not isinstance(buf, (bytes, bytearray)):
+    if isinstance(buf, bytearray):
+        buf = bytes(buf)
+    elif not isinstance(buf, bytes):
         return "bad", None
     header_end = buf.find(b"\r\n\r\n")
     if header_end < 0:
@@ -281,7 +288,7 @@ class HttpServer:
         self.http_counts = {}
         self._sock = None
         self._client = None
-        self._buf = b""
+        self._buf = bytearray()
         self._out = b""
         self._phase = None
         self._deadline = 0
@@ -571,7 +578,7 @@ setInterval(poll,2000);
                 pass
             return
         self._client = conn
-        self._buf = b""
+        self._buf = bytearray()
         self._out = b""
         self._phase = "read"
         self._deadline = ticks_add(now_ms, CLIENT_BUDGET_MS)
@@ -590,7 +597,7 @@ setInterval(poll,2000);
             if len(self._buf) + len(chunk) > MAX_HEADER_BYTES + MAX_BODY_BYTES + 64:
                 self._queue_response(413, b"Payload Too Large", "text/plain")
                 return
-            self._buf += chunk
+            self._buf.extend(chunk)
             status, parsed = request_progress(self._buf)
             if status == "need-data":
                 continue
@@ -608,9 +615,10 @@ setInterval(poll,2000);
     def _queue_response(self, code, out, ctype):
         if isinstance(out, str):
             out = out.encode()
-        self._out = memoryview(_http_response(out, ctype, code))
+        # Bytes, not a memoryview: some MicroPython sockets reject memoryview.
+        self._out = _http_response(out, ctype, code)
         self._phase = "write"
-        self._buf = b""
+        self._buf = bytearray()
 
     def _write_client(self):
         while self._client is not None and self._out:
@@ -632,7 +640,7 @@ setInterval(poll,2000);
     def _close_client(self):
         conn = self._client
         self._client = None
-        self._buf = b""
+        self._buf = bytearray()
         self._out = b""
         self._phase = None
         if conn is not None:

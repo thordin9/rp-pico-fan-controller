@@ -114,6 +114,18 @@ def average_adc_raw(samples):
     return total // n
 
 
+def mean_adc(read_u16, count):
+    """Integer mean of ``count`` calls to an ADC read. Shared with PicoHw."""
+    if count <= 0:
+        return 0
+    total = 0
+    i = 0
+    while i < count:
+        total += read_u16()
+        i += 1
+    return total // count
+
+
 def note_tach_pulse(counts, last_us, seen, index, now_us, min_interval_us):
     """Count one tach edge if it is far enough from the previous edge.
 
@@ -402,12 +414,19 @@ class FanController:
 
 
 def _make_tach_handler(counts, last_us, seen, index, min_interval_us):
-    # Closure is built at init. The body only calls note_tach_pulse, which
-    # does not allocate, so it is safe to run from a pin IRQ.
+    # Inlined, and it calls time.ticks_diff (C) rather than the Python
+    # helper. The Python helper's 30-bit wrap math can allocate a long int,
+    # which is not safe in a pin IRQ. Keep this body in step with
+    # note_tach_pulse: first edge counts, later edges need min_interval_us.
     def _handler(_pin):
-        note_tach_pulse(
-            counts, last_us, seen, index, time.ticks_us(), min_interval_us
-        )
+        now = time.ticks_us()
+        if seen[index]:
+            if time.ticks_diff(now, last_us[index]) < min_interval_us:
+                return
+        else:
+            seen[index] = 1
+        last_us[index] = now
+        counts[index] += 1
 
     return _handler
 
@@ -452,12 +471,7 @@ class PicoHw:
             self.set_duty(i, fraction)
 
     def read_die_temp_c(self):
-        total = 0
-        read = self.temp_adc.read_u16
-        n = TEMP_ADC_SAMPLES
-        for _ in range(n):
-            total += read()
-        return adc_raw_to_temp_c(total // n)
+        return adc_raw_to_temp_c(mean_adc(self.temp_adc.read_u16, TEMP_ADC_SAMPLES))
 
     def take_pulse_counts(self):
         # Copy under the IRQ lock without allocating. The list copy happens
