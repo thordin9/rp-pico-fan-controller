@@ -55,7 +55,8 @@ From the GUI, select the body and use **File → Export** for STEP or STL of the
 - The OLED window is a subtractive loft between the outer chamfer rectangle and the active-area rectangle. Both sketches are fully constrained.
 - Debossed labels (FAN, INT, EXT, PWR on the Pico base, INT or EXT on the sensor lids) are Liberation Sans Bold shape-strings, the same family as `lib.scad`, cut with a PartDesign boolean. They are not sketches, so they are not in the DOF report. The build fails if a label removes no material.
 - Walls are 1.6 mm, floor and lid 1.2 mm. There is no awning, no louver loft, and no fixed ear. The bracket is its own body.
-- On the last check, every bounding box matched the OpenSCAD mesh to 0.00 mm. Volume deltas were −3.9 mm³ (Pico base), +11.1 mm³ (Pico lid, 0.36%), −3.5 mm³ (both sensor bodies), about −1.5 mm³ (sensor lids), and −12.3 mm³ (both brackets). All of those are inside the pass rule. 151 sketches, each at 0 degrees of freedom, none redundant or conflicting.
+- The BMP280 cable exit is a through opening, 16.5 × 6.0 mm, cutter from 1.2 mm outside the wall to 2.2 mm past the inner face. The strain bar sits on the top edge of that opening. The Pico INT and EXT exits are 8.0 × 5.0 mm, and every Pico cleat sits on the top edge of its slot. Probes sample the middle of each exit and a point past the inner face.
+- On the last check, every bounding box matched the OpenSCAD mesh to 0.00 mm. Volume deltas were −2.1 mm³ (Pico base), +11.1 mm³ (Pico lid, 0.36%), −3.7 mm³ (both sensor bodies), −1.5 mm³ and −1.6 mm³ (sensor lids), and −1.8 mm³ (both brackets). All of those are inside the pass rule. 151 sketches, each at 0 degrees of freedom, none redundant or conflicting.
 
 ## CI
 

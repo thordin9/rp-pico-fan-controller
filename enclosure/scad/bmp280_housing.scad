@@ -17,25 +17,39 @@ ext = variant == "EXT";
 label = ext ? "EXT" : "INT";
 
 corner_r = 2.0;
-cable_w = 7.0;
-cable_h = 3.4;
-cable_z0 = rail_h + 1.2;
+// 1x6 Dupont housing is 6 × 2.54 = 15.24 mm wide and about 2.5 mm tall.
+// A bundled 6-wire lead is closer to 6 mm across. The opening takes either.
+cable_w = 16.5;
+cable_h = 6.0;
+cable_z0 = rail_h + 0.9;
+// Cutter starts 1.2 mm outside the wall and runs 2.2 mm past the inner
+// face. A cutter centred on the outer face used to stop 0.2 mm short and
+// left a skin, so the recess looked like a slot and was not an exit.
+cable_y0 = -1.2;
+cable_depth = wall + 3.4;
 
 module fit_checks() {
     assert(variant == "INT" || variant == "EXT", "variant must be INT or EXT");
     assert(abs(bmp_outer_l - 28.6) < 1e-6, "BMP280 length drifted");
     assert(abs(bmp_outer_w - 25.6) < 1e-6, "BMP280 width drifted");
     assert(abs(bmp_body_h - 14.5) < 1e-6, "BMP280 height drifted");
-    assert(cable_z0 > rail_h + 0.6, "Cable slot cuts the slide rail");
+    assert(cable_z0 >= rail_h + 0.6, "Cable slot cuts the slide rail");
     assert(cable_z0 + cable_h < bmp_body_h - skirt_h - 0.4,
            "Cable slot meets the lid skirt");
-    assert(cable_w >= 6.0 && cable_h >= 3.2, "Cable exit is tight for four wires");
+    assert(cable_w + 1e-6 >= 6 * 2.54, "Exit is narrower than a 1x6 Dupont housing");
+    assert(cable_h >= 5.5, "Exit is too short for a bundled 6-wire lead");
+    assert(cable_y0 < -0.4, "Cable cutter does not start outside the wall");
+    assert(cable_y0 + cable_depth > wall + 1.5,
+           "Cable cutter does not break into the cavity");
+    assert(cable_w / 2 + 2.0 < bmp_outer_l / 2 - corner_r,
+           "Cable exit runs into the corner radius");
     echo("FIT bmp", variant, bmp_outer_l, bmp_outer_w, bmp_body_h);
+    echo("FIT bmp cable", cable_w, cable_h, "z", cable_z0, "y", cable_y0, cable_depth);
 }
 
 module cable_slot() {
-    translate([bmp_outer_l / 2, 0, cable_z0])
-        stadium_x(cable_w, cable_h, wall + 1.2);
+    translate([bmp_outer_l / 2, cable_y0 + cable_depth / 2, cable_z0])
+        stadium_x(cable_w, cable_h, cable_depth);
 }
 
 module shell() {
@@ -67,19 +81,21 @@ module platform() {
 }
 
 module strain_cleat() {
-    span = cable_w - 0.8;
-    x0 = bmp_outer_l / 2 - span / 2;
-    y0 = wall + 0.8;
-    bar_z = cable_z0 + cable_h - 1.5;
-    post = 1.2;
-    translate([x0 + 0.2, y0, floor_t - 0.3]) {
-        h = (bar_z + 0.4) - (floor_t - 0.3);
-        cube([post, 1.4, h]);
-        translate([span - post - 0.4, 0, 0])
-            cube([post, 1.4, h]);
-    }
-    translate([x0, y0, bar_z])
-        cube([span, 1.8, 1.3]);
+    // Posts stand just outside the opening and bite the wall. The bar
+    // sits on the inner face at the top of the slot, so the through
+    // hole stays the full 16.5 × 6 mm and a zip tie can pass under the bar.
+    post = 1.4;
+    gap = 0.5;
+    x0 = bmp_outer_l / 2 - cable_w / 2 - gap - post;
+    span = cable_w + 2 * gap + 2 * post;
+    bar_z = cable_z0 + cable_h;
+    bar_h = 1.4;
+    post_h = (bar_z + bar_h) - (floor_t - 0.2);
+    for (px = [x0, x0 + span - post])
+        translate([px, wall - 0.35, floor_t - 0.2])
+            cube([post, 2.0, post_h]);
+    translate([x0, wall + 0.35, bar_z])
+        cube([span, 1.8, bar_h]);
 }
 
 module snaps() {

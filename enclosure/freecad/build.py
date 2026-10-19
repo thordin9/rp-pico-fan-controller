@@ -791,7 +791,7 @@ def build_pico_base():
     for i, cx in enumerate((lit(12.0), lit(19.5))):
         wall_slot(b, "fan_%d" % i, cx, slot_y, lit(5.2), lit(6.5), lit(3.4), through)
     for i, cx in enumerate((lit(30.0), lit(40.0))):
-        wall_slot(b, "i2c_%d" % i, cx, slot_y, lit(5.2), lit(6.5), lit(3.4), through)
+        wall_slot(b, "i2c_%d" % i, cx, slot_y, lit(5.2), lit(8.0), lit(5.0), through)
     wall_slot(b, "pwr", lit(16.0), outer_w - wall / 2, lit(4.8), lit(8.0), lit(4.0), through)
 
     bite = d("snap_bite")
@@ -810,17 +810,17 @@ def build_pico_base():
             lit(9.0),
             cleat_d,
             cleat_h,
-            z=(lit(5.2) + lit(3.4) - lit(1.8)).v,
+            z=(lit(5.2) + lit(3.4)).v,
         )
     for i, cx in enumerate((lit(30.0), lit(40.0))):
         b.pad_rect(
             "cs%d" % i,
-            cx - lit(9.0) / 2,
+            cx - lit(9.6) / 2,
             wall - d("fuse_overlap") * lit(1.75),
-            lit(9.0),
+            lit(9.6),
             cleat_d,
             cleat_h,
-            z=(lit(5.2) + lit(3.4) - lit(1.8)).v,
+            z=(lit(5.2) + lit(5.0)).v,
         )
     b.pad_rect(
         "cpwr",
@@ -829,7 +829,7 @@ def build_pico_base():
         lit(11.0),
         cleat_d,
         cleat_h,
-        z=(lit(4.8) + lit(4.0) - lit(1.9)).v,
+        z=(lit(4.8) + lit(4.0)).v,
     )
 
     pcb_x0 = wall
@@ -1037,16 +1037,21 @@ def build_bmp_body(ext):
         body_h - d("floor_t") + d("cut_overshoot"),
         z=d("floor_t").v,
     )
-    cable_z0 = d("rail_h") + lit(1.2)
+    # Through-slot. Centering a short cutter on the outer face left a skin.
+    cable_w = lit(16.5)
+    cable_h = lit(6.0)
+    cable_z0 = d("rail_h") + lit(0.9)
+    cable_depth = wall + lit(3.4)
+    cable_y0 = lit(-1.2)
     wall_slot(
         b,
         "cable",
         outer_l / 2,
-        zero(),
+        cable_y0 + cable_depth / 2,
         cable_z0,
-        lit(7.0),
-        lit(3.4),
-        wall + lit(1.2),
+        cable_w,
+        cable_h,
+        cable_depth,
     )
     # Legs under the module, sunk 0.3 mm into the floor.
     x0 = wall + d("bmp_air")
@@ -1074,24 +1079,26 @@ def build_bmp_body(ext):
         lit(1.6),
         z=(d("floor_t") + d("bmp_platform_h") - lit(0.3)).v,
     )
-    # Strain posts and bar across the cable slot.
-    span = lit(7.0) - lit(0.8)
-    bar_x = outer_l / 2 - span / 2
-    post = lit(1.2)
-    bar_z = cable_z0 + lit(3.4) - lit(1.5)
-    post_h = (bar_z + lit(0.4)) - (d("floor_t") - lit(0.3))
-    y_post = wall + lit(0.8)
-    b.pad_rect("post0", bar_x + lit(0.2), y_post, post, lit(1.4), post_h, z=(d("floor_t") - lit(0.3)).v)
-    b.pad_rect(
-        "post1",
-        bar_x + lit(0.2) + span - post - lit(0.4),
-        y_post,
-        post,
-        lit(1.4),
-        post_h,
-        z=(d("floor_t") - lit(0.3)).v,
-    )
-    b.pad_rect("bar", bar_x, y_post, span, lit(1.8), lit(1.3), z=bar_z.v)
+    # Posts just outside the opening. The bar is inboard, at the top of
+    # the slot, so it does not fill the through hole.
+    post = lit(1.4)
+    gap = lit(0.5)
+    x0 = outer_l / 2 - cable_w / 2 - gap - post
+    span = cable_w + 2 * gap + 2 * post
+    bar_z = cable_z0 + cable_h
+    bar_h = lit(1.4)
+    post_h = (bar_z + bar_h) - (d("floor_t") - lit(0.2))
+    for i, px in enumerate((x0, x0 + span - post)):
+        b.pad_rect(
+            "post%d" % i,
+            px,
+            wall - lit(0.35),
+            post,
+            lit(2.0),
+            post_h,
+            z=(d("floor_t") - lit(0.2)).v,
+        )
+    b.pad_rect("bar", x0, wall + lit(0.35), span, lit(1.8), bar_h, z=bar_z.v)
     z_snap = body_h - lit(0.85) - d("snap_ridge_h")
     add_snap(b, "snap_n", outer_l / 2, d("snap_bite"), z_snap, -1)
     add_snap(b, "snap_p", outer_l / 2, outer_w - d("snap_bite"), z_snap, +1)
@@ -1275,11 +1282,17 @@ def build_mount(pico):
 PROBES = {
     "pico_case_base": [
         (30.0, 0.8, 6.9, False, "INT exit"),
+        (30.0, 2.0, 6.9, False, "INT exit into cavity"),
         (35.0, 0.8, 6.9, True, "between INT and EXT"),
         (40.0, 0.8, 6.9, False, "EXT exit"),
+        (40.0, 2.0, 6.9, False, "EXT exit into cavity"),
+        (12.0, 0.8, 6.9, False, "FAN exit"),
+        (12.0, 2.0, 6.9, False, "FAN exit into cavity"),
+        (19.5, 2.0, 6.9, False, "second FAN exit into cavity"),
         (0.8, 16.1, 7.1, False, "USB"),
         (3.6, 10.4, 0.6, False, "insert"),
         (16.0, 31.4, 6.8, False, "PWR"),
+        (16.0, 30.3, 6.8, False, "PWR into cavity"),
         (28.0, 16.0, 0.6, True, "floor"),
         (28.0, 16.0, 8.0, False, "cavity"),
         (28.35, -0.7, 1.6, False, "zip rail"),
@@ -1292,14 +1305,17 @@ PROBES = {
         (34.6, 17.6, 3.0, False, "nest pocket"),
     ],
     "bmp280_int_body": [
-        (14.3, 0.8, 6.1, False, "cable"),
-        (8.0, 0.8, 6.1, True, "beside cable"),
+        (14.3, 0.8, 7.1, False, "cable in the wall"),
+        (14.3, 2.2, 7.1, False, "cable into the cavity"),
+        (14.3, -0.4, 7.1, False, "cable outside the wall"),
+        (4.8, 0.8, 7.1, True, "wall beside the cable exit"),
         (14.0, 12.0, 0.5, True, "floor"),
         (14.0, 12.0, 8.0, False, "cavity"),
     ],
     "bmp280_ext_body": [
-        (14.3, 0.8, 6.1, False, "cable"),
-        (8.0, 0.8, 6.1, True, "beside cable"),
+        (14.3, 0.8, 7.1, False, "cable in the wall"),
+        (14.3, 2.2, 7.1, False, "cable into the cavity"),
+        (4.8, 0.8, 7.1, True, "wall beside the cable exit"),
         (14.0, 12.0, 8.0, False, "cavity"),
     ],
     "bmp280_int_lid": [

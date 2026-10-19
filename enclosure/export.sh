@@ -44,6 +44,11 @@ run_stl() {
 run_png() {
   local src="$1" out="$2"
   shift 2
+  local camera="0,0,0,55,0,32,0"
+  if [[ "${1:-}" == --camera ]]; then
+    camera="$2"
+    shift 2
+  fi
   local log
   log="$(mktemp)"
   if ! xvfb-run -a openscad -o "$out" \
@@ -51,7 +56,7 @@ run_png() {
       --colorscheme=Tomorrow \
       --projection=perspective \
       --autocenter --viewall \
-      --camera=0,0,0,55,0,32,0 \
+      --camera="$camera" \
       -D "quality=${PQ}" "$@" "$SCAD/$src" >"$log" 2>&1; then
     cat "$log"
     echo "OpenSCAD preview failed for $out" >&2
@@ -90,6 +95,10 @@ run_png bmp280_housing.scad "$PNG/bmp280_int_lid.png" -D 'variant="INT"' -D 'par
 run_png bmp280_housing.scad "$PNG/bmp280_ext_body.png" -D 'variant="EXT"' -D 'part="body"'
 run_png bmp280_housing.scad "$PNG/bmp280_ext_lid.png" -D 'variant="EXT"' -D 'part="lid"'
 run_png bmp280_housing.scad "$PNG/bmp280_section.png" -D 'variant="INT"' -D 'part="section"'
+# Cable face is Y=0. Look from in front and below so the through exit is the subject.
+run_png bmp280_housing.scad "$PNG/bmp280_cable_exit.png" \
+    --camera "0,0,0,25,0,20,0" \
+    -D 'variant="INT"' -D 'part="body"'
 run_png mount.scad "$PNG/mount_pico.png" -D 'which="pico"'
 run_png mount.scad "$PNG/mount_bmp.png" -D 'which="bmp"'
 
@@ -189,11 +198,17 @@ def expect(tris, name, pt, want):
 base = analyze(stl_dir / "pico_case_base.stl")
 # Separate exits on the cable wall, and the holes that have to stay open.
 expect(base, "INT exit", (30.0, 0.8, 6.9), False)
+expect(base, "INT exit into cavity", (30.0, 2.0, 6.9), False)
 expect(base, "wall between INT and EXT", (35.0, 0.8, 6.9), True)
 expect(base, "EXT exit", (40.0, 0.8, 6.9), False)
+expect(base, "EXT exit into cavity", (40.0, 2.0, 6.9), False)
+expect(base, "FAN exit", (12.0, 0.8, 6.9), False)
+expect(base, "FAN exit into cavity", (12.0, 2.0, 6.9), False)
+expect(base, "second FAN exit into cavity", (19.5, 2.0, 6.9), False)
 expect(base, "USB opening", (0.8, 16.1, 7.1), False)
 expect(base, "standoff insert bore", (3.6, 10.4, 0.6), False)
 expect(base, "PWR exit", (16.0, 31.4, 6.8), False)
+expect(base, "PWR exit into cavity", (16.0, 30.3, 6.8), False)
 expect(base, "floor", (28.0, 16.0, 0.6), True)
 expect(base, "zip slot in rail", (28.35, -0.7, 1.6), False)
 
@@ -204,14 +219,17 @@ expect(lid, "lid beside window", (34.6, 24.0, 0.6), True)
 expect(lid, "BOOTSEL", (10.6, 17.6, 0.6), False)
 
 ib = analyze(stl_dir / "bmp280_int_body.stl")
-expect(ib, "INT cable exit", (14.3, 0.8, 6.1), False)
-expect(ib, "INT wall beside cable", (8.0, 0.8, 6.1), True)
+expect(ib, "INT cable in the wall", (14.3, 0.8, 7.1), False)
+expect(ib, "INT cable into the cavity", (14.3, 2.2, 7.1), False)
+expect(ib, "INT cable outside the wall", (14.3, -0.4, 7.1), False)
+expect(ib, "INT wall beside cable", (4.8, 0.8, 7.1), True)
 expect(ib, "INT floor", (14.0, 12.0, 0.5), True)
 expect(ib, "INT cavity", (14.0, 12.0, 8.0), False)
 
 eb = analyze(stl_dir / "bmp280_ext_body.stl")
-expect(eb, "EXT cable exit", (14.3, 0.8, 6.1), False)
-expect(eb, "EXT wall beside cable", (8.0, 0.8, 6.1), True)
+expect(eb, "EXT cable in the wall", (14.3, 0.8, 7.1), False)
+expect(eb, "EXT cable into the cavity", (14.3, 2.2, 7.1), False)
+expect(eb, "EXT wall beside cable", (4.8, 0.8, 7.1), True)
 expect(eb, "EXT cavity", (14.0, 12.0, 8.0), False)
 
 il = analyze(stl_dir / "bmp280_int_lid.stl")

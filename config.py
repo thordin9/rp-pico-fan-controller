@@ -57,17 +57,19 @@ WIFI_ENABLED = True
 # and the Pico W wireless pins:
 #   I2C0 GP4 SDA / GP5 SCL: internal BMP280 (0x76) and the OLED (0x3C)
 #   I2C1 GP6 SDA / GP7 SCL: external BMP280 (0x76)
-# Both BMP280 modules are assumed hardwired to 0x76 (SDO tied to GND).
-# To share one bus instead, strap the external SDO to 3V3 for address 0x77
-# and use the commented block below.
+# Tie each BMP280's CSB to 3V3 and SDO to GND with a wire (a 6-wire cable,
+# or jumpers soldered on the module: CSB to VCC, SDO to GND). Onboard pull
+# resistors are not that tie. The address is then 0x76.
+# To share one bus instead, tie the external SDO to 3V3 for address 0x77
+# and use the commented block below. Remove an SDO-to-GND jumper first.
 #
 # BMP280 (HandsOn GY-BMP280 and the Bosch part):
 #   VCC -> Pico 3V3 (the module is 1.8–3.3 V; do not use 5 V)
 #   GND -> Pico GND
 #   SDA -> that bus's SDA, SCL -> that bus's SCL, pull-ups to 3V3
 #   CSB -> 3V3 so the chip stays in I2C mode (a low CSB at power-up locks SPI)
-#   SDO -> GND gives address 0x76. Do not leave SDO open. Do not short a
-#   hardwired SDO to 3V3.
+#   SDO -> GND gives address 0x76. Do not leave SDO open. Do not tie SDO
+#   to 3V3 and GND at the same time.
 
 I2C_FREQ = 100000
 I2C_TIMEOUT_US = 50000

@@ -114,16 +114,40 @@ Size the 12 V supply for all four fans at full speed, plus margin. The 5 V suppl
 
 ## Default I2C
 
-Both BMP280 modules are assumed hardwired to address `0x76` (SDO tied to GND on the PCB). They cannot share a bus. The OLED shares I2C0 with the internal sensor because the OLED is at `0x3C`.
+A BMP280 module has six pins: **VCC, GND, SCL, SDA, CSB, SDO**. Tie **CSB to 3V3** so the chip starts in I2C mode, and tie **SDO to GND** so the address is `0x76`. Do this with a wire. The onboard pull resistors are not a substitute: the chip samples both pins at power-up, and a pull loses to a flux bridge, a finger, or a long lead.
 
-| Signal | Internal BMP280 | External BMP280 | OLED |
-|--------|-----------------|-----------------|------|
-| VCC | 3V3 pin 36 | 3V3 pin 36 | 3V3 pin 36 |
-| GND | Pico GND | Pico GND | Pico GND |
-| SDA | GP4 pin 6 | GP6 pin 9 | GP4 pin 6, often labelled DIN |
-| SCL | GP5 pin 7 | GP7 pin 10 | GP5 pin 7, often labelled CLK |
-| CSB | 3V3, high before power-up | 3V3, high before power-up | no CSB pin |
-| SDO | GND, address `0x76` | GND, address `0x76` | no SDO pin |
+Two ways to make the ties. Use the same choice on both modules.
+
+- **(a) Six-wire cable.** VCC, GND, SCL, SDA, CSB, and SDO all go to the Pico. CSB joins 3V3 pin 36. SDO joins a Pico GND pin.
+- **(b) Jumpers on the module.** Solder CSB to VCC, and SDO to GND, on the breakout. The cable stays four wires: VCC, GND, SCL, SDA. Once VCC is on 3V3 and GND is on ground, CSB and SDO are tied as well.
+
+Both sensors then sit at `0x76`, so they cannot share a bus. The OLED shares I2C0 with the internal sensor because the OLED is at `0x3C`. The OLED has no CSB or SDO pin.
+
+### Internal BMP280
+
+I2C0. Address `0x76`.
+
+| Module pin | Lands on | Option (a), 6-wire cable | Option (b), jumper on the module |
+|------------|----------|--------------------------|----------------------------------|
+| VCC | Pico 3V3, physical pin 36 | wire in the cable | wire in the cable |
+| GND | Pico GND (pin 3, 8, 13, 18, 23, 28, 33, or 38) | wire in the cable | wire in the cable |
+| SCL | GP5, physical pin 7 | wire in the cable | wire in the cable |
+| SDA | GP4, physical pin 6 | wire in the cable | wire in the cable |
+| CSB | 3V3, high before power-up (selects I2C) | wire in the cable to Pico 3V3 pin 36 | solder CSB to VCC on the module |
+| SDO | GND (selects address `0x76`) | wire in the cable to Pico GND | solder SDO to GND on the module |
+
+### External BMP280
+
+I2C1. Address `0x76`. Same power ties as the internal sensor. Different clock and data pins.
+
+| Module pin | Lands on | Option (a), 6-wire cable | Option (b), jumper on the module |
+|------------|----------|--------------------------|----------------------------------|
+| VCC | Pico 3V3, physical pin 36 | wire in the cable | wire in the cable |
+| GND | Pico GND (pin 3, 8, 13, 18, 23, 28, 33, or 38) | wire in the cable | wire in the cable |
+| SCL | GP7, physical pin 10 | wire in the cable | wire in the cable |
+| SDA | GP6, physical pin 9 | wire in the cable | wire in the cable |
+| CSB | 3V3, high before power-up (selects I2C) | wire in the cable to Pico 3V3 pin 36 | solder CSB to VCC on the module |
+| SDO | GND (selects address `0x76`) | wire in the cable to Pico GND | solder SDO to GND on the module |
 
 ```text
   I2C0, internal BMP280 0x76 and OLED 0x3C
@@ -134,8 +158,9 @@ Both BMP280 modules are assumed hardwired to address `0x76` (SDO tied to GND on 
                  |        |
                  +-- internal BMP280 SDA/SCL -- GP4 pin 6 / GP5 pin 7
                  +-- OLED DIN/CLK ------------ GP4 pin 6 / GP5 pin 7
-  3V3 ---- internal VCC, internal CSB, OLED VCC
-  GND ---- internal GND, internal SDO, OLED GND
+  3V3 pin 36 ---- internal VCC, and internal CSB (option a, or via the VCC jumper in option b)
+  GND ---------- internal GND, and internal SDO (option a, or via the GND jumper in option b)
+  OLED VCC and GND use the same 3V3 pin 36 and GND. The OLED has no CSB or SDO.
 
   I2C1, external BMP280 0x76
   3V3 pin 36 ----+--------+
@@ -144,8 +169,8 @@ Both BMP280 modules are assumed hardwired to address `0x76` (SDO tied to GND on 
                 SDA      SCL
                  |        |
                  +-- external BMP280 SDA/SCL -- GP6 pin 9 / GP7 pin 10
-  3V3 ---- external VCC and CSB
-  GND ---- external GND and SDO
+  3V3 pin 36 ---- external VCC and external CSB (same two options)
+  GND ---------- external GND and external SDO
 ```
 
 ```mermaid
@@ -186,18 +211,18 @@ EXTERNAL_BMP280_SDA = 4
 EXTERNAL_BMP280_SCL = 5
 ```
 
-Do not short a hardwired SDO to 3V3. The printed housings in [`enclosure/`](../enclosure/README.md) are for the two-bus default.
+Do not tie SDO to 3V3 and to GND at the same time. If option (b) already soldered SDO to GND, remove that jumper before using this alternative. The printed housings in [`enclosure/`](../enclosure/README.md) are for the two-bus wiring above, with each sensor at `0x76`.
 
 ## Enable the internal BMP280
 
-1. Wire VCC and CSB to 3V3 pin 36, GND and SDO to ground, SDA to GP4, SCL to GP5.
+1. Tie CSB to 3V3 and SDO to GND, either with a 6-wire cable (option a) or with jumpers on the module (option b). Then VCC to 3V3 pin 36, GND to ground, SDA to GP4 pin 6, SCL to GP5 pin 7.
 2. In `config.py` set `INTERNAL_BMP280_ENABLED = True`. Leave the address at `0x76` and the bus at I2C0.
 3. Flash and reboot. The serial log should not say `chip id`.
 4. Open `/status.json`. `sensors.internal.ok` becomes true and `chip_id` is 88. `temp_source` becomes `internal`.
 
 ## Enable the external BMP280
 
-1. Wire VCC and CSB to 3V3, GND and SDO to ground, SDA to GP6, SCL to GP7. This is a second bus, still at `0x76`.
+1. Same CSB and SDO ties as the internal sensor. VCC to 3V3 pin 36, GND to ground, SDA to GP6 pin 9, SCL to GP7 pin 10. This is a second bus, still at `0x76`.
 2. Set `EXTERNAL_BMP280_ENABLED = True`.
 3. Reboot. `sensors.external.ok` becomes true.
 4. With both sensors healthy and the difference inside 2000 Pa, `pressure_delta_pa` is a number and `pressure_loop_active` is true. A larger difference is dropped and the loop stays idle.

@@ -71,7 +71,7 @@ print(bus1.scan())  # 118 is the external BMP280
 
 | What you see | What to do |
 |--------------|------------|
-| `[]` | 3V3 and GND, SDA and SCL not swapped, pull-ups to 3V3 on that bus. CSB must be high before power-up. SDO must be GND for `0x76` |
+| `[]` | 3V3 and GND, SDA and SCL not swapped, pull-ups to 3V3 on that bus. Tie CSB to 3V3 and SDO to GND with a wire: a 6-wire cable, or jumpers soldered on the module (CSB to VCC, SDO to GND). Onboard pull resistors are not enough. CSB has to be high at power-up or the chip is not in I2C. SDO has to be GND for `0x76`. Power-cycle after changing either tie |
 | I2C0 `[118, 60]` and I2C1 `[118]` | The default: internal BMP280, OLED, external BMP280 |
 | I2C0 `[118, 119, 60]` | The external SDO is at 3V3, so that sensor is `0x77` on I2C0. That is the shared-bus alternative, not the default. Set `EXTERNAL_BMP280_ADDR`, `EXTERNAL_BMP280_I2C_ID`, and the pins to match |
 | `61` | OLED is at `0x3D`. Set `OLED_ADDR = 0x3D` |

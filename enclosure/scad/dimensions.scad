@@ -128,11 +128,11 @@ oled_active_dy = 0.0;
 // BMP280 module (HandsOn Technology user guide, attached)
 //   Size: 21 mm × 18 mm. Weight 1.18 g.
 //   Six pins in one row: VCC, GND, SCL, SDA, CSB, SDO.
-//   Default I2C address 0x76, hardwired. 3.3 V module (GY-BM E/P 280).
-// The controller uses that hardwired address on both modules, so SDO is not
-// strapped and the cable is four conductors only: VCC, GND, SCL, SDA.
-// CSB stays on the module (I2C mode wants it high; these boards already
-// wire that). Firmware buses, matching the labels on the Pico case:
+//   Address 0x76 when SDO is tied to GND. CSB tied to 3V3 selects I2C.
+//   3.3 V module (GY-BM E/P 280). Tie CSB and SDO with a wire; the onboard
+//   pull resistors are not the tie. The housing exit fits a 6-wire lead
+//   (option a) or a 4-wire lead after CSB–VCC and SDO–GND jumpers (option b).
+// Firmware buses, matching the labels on the Pico case:
 //   INTERNAL BMP280 shares I2C0 with the OLED — GP4 SDA, GP5 SCL
 //   EXTERNAL BMP280 is alone on I2C1       — GP6 SDA, GP7 SCL
 // The guide's mechanical figure is a low-resolution image and does not
