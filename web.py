@@ -64,6 +64,8 @@ def parse_request_line(line):
     path = parts[1].decode() if len(parts) > 1 else "/"
     if "?" in path:
         path = path.split("?", 1)[0]
+    if len(path) > 64 or len(method) > 8:
+        raise ValueError("request line")
     return method, path
 
 
@@ -73,6 +75,8 @@ def parse_fan_path(path):
         return None, None
     rest = path[len(prefix) :]
     bits = rest.split("/")
+    if not bits or len(bits[0]) > 2 or not bits[0].isdigit():
+        return None, None
     try:
         fan_id = int(bits[0])
     except ValueError:
@@ -226,10 +230,11 @@ def request_progress(buf, max_header=MAX_HEADER_BYTES, max_body=MAX_BODY_BYTES):
         headers[key.strip().lower()] = value.strip()
     content_length = 0
     if b"content-length" in headers:
-        try:
-            content_length = int(headers[b"content-length"])
-        except ValueError:
+        token = headers[b"content-length"]
+        # A huge digit string is a bad request, not a multi-megabyte int.
+        if len(token) > 6 or not token.isdigit():
             return "bad", None
+        content_length = int(token)
     if content_length < 0:
         return "bad", None
     if content_length > max_body:
@@ -247,7 +252,13 @@ def _fmt_num(value, spec):
     if value is None:
         return "—"
     try:
-        return spec.format(float(value))
+        number = float(value)
+    except (TypeError, ValueError):
+        return "—"
+    if number != number or number == float("inf") or number == float("-inf"):
+        return "—"
+    try:
+        return spec.format(number)
     except (TypeError, ValueError):
         return "—"
 
@@ -289,6 +300,7 @@ def _http_response(body, content_type="text/html; charset=utf-8", code=200):
         404: "Not Found",
         405: "Method Not Allowed",
         413: "Payload Too Large",
+        500: "Internal Server Error",
     }.get(code, "OK")
     if isinstance(body, str):
         body = body.encode()
@@ -404,6 +416,7 @@ class HttpServer:
   .num {{ text-align: right; font-variant-numeric: tabular-nums; }}
   .muted {{ opacity: 0.7; font-size: 0.9rem; }}
   #err {{ color: #b00020; min-height: 1.2em; }}
+  .fault {{ background: #7a1f1f; color: #fff; padding: 0.4rem 0.6rem; margin: 0.35rem 0; }}
   input[type=range] {{ width: 6rem; }}
   button {{ margin: 0 0.1rem; }}
 </style>
@@ -435,6 +448,7 @@ class HttpServer:
   <tr><th>Fan</th><th>Role</th><th class="num">RPM</th><th class="num">Duty</th><th>Mode</th><th>Stall</th><th>Set</th><th>Control</th></tr>
   {}
 </table>
+<div id="faults">{}</div>
 <script>
 function showErr(msg){{
   var el=document.getElementById('err');
@@ -469,9 +483,23 @@ function sensorLabel(item){{
   if(!item.error||item.error==='starting') return 'starting';
   return item.error;
 }}
+function renderFaults(list){{
+  var el=document.getElementById('faults');
+  if(!el) return;
+  el.innerHTML='';
+  if(!list||!list.length){{ el.style.display='none'; return; }}
+  el.style.display='block';
+  list.forEach(function(f){{
+    var d=document.createElement('div');
+    d.className='fault';
+    d.textContent=(f&&f.label)||'Sensor fault';
+    el.appendChild(d);
+  }});
+}}
 function apply(s){{
   if(!s||!s.fans)return;
   showErr('');
+  renderFaults(s.faults);
   document.getElementById('die').textContent=s.die_c.toFixed(1);
   text('ctl', num(s.control_c,1,' °C'));
   text('tsrc', s.temp_source||'die');
@@ -529,10 +557,26 @@ setInterval(poll,2000);
             _html_escape(d["wifi"]),
             _html_escape(d["ip"] or "—"),
             "".join(rows),
+            "".join(
+                "<div class='fault'>{}</div>".format(_html_escape(item.get("label") or ""))
+                for item in (d.get("faults") or [])
+                if isinstance(item, dict)
+            ),
         )
 
     def dispatch(self, method, path, body, headers=None):
         """Return (code, body_bytes, content_type). Used by tests and poll()."""
+        try:
+            return self._dispatch(method, path, body, headers)
+        except Exception as exc:
+            print("http: dispatch failed:", exc)
+            try:
+                self._bump(path_bucket(path if isinstance(path, str) else "/"), 500)
+            except Exception:
+                pass
+            return 500, b"internal error", "text/plain"
+
+    def _dispatch(self, method, path, body, headers=None):
         headers = _normalize_headers(headers)
         bucket = path_bucket(path)
 
@@ -713,7 +757,7 @@ setInterval(poll,2000);
                 if _would_block(exc):
                     return
                 raise
-            if not n:
+            if not n or n < 0:
                 self._close_client()
                 return
             if n < len(self._out):

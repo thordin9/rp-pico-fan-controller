@@ -147,8 +147,26 @@ def _fan_line(fan):
     return "{}{} {:5d} {:3d}%{}".format(fan.get("id", "?"), role, rpm, pct, flags)
 
 
+def _fault_page(faults):
+    """One warning page, or None when nothing is latched."""
+    if not faults:
+        return None
+    first = faults[0] if isinstance(faults[0], dict) else {}
+    extra = ""
+    if len(faults) > 1:
+        extra = "+{} more".format(len(faults) - 1)
+    return (
+        fit("SENSOR FAULT"),
+        fit(str(first.get("short") or "SENSOR")),
+        fit(str(first.get("short_reason") or "fault")),
+        fit(extra),
+    )
+
+
 def build_pages(status):
-    """Return 4 pages, each a tuple of 4 strings of at most 16 characters.
+    """Return 4 pages, or 5 when a sensor fault is latched.
+
+    Each page is 4 strings of at most 16 characters.
 
     Page 0 is the link, the active temperature source, the control
     temperature, and the internal-minus-external pressure delta.
@@ -185,12 +203,16 @@ def build_pages(status):
     sensors = status.get("sensors") or {}
     internal = _sensor_page("Internal BMP280", sensors.get("internal"))
     external = _sensor_page("External BMP280", sensors.get("external"))
-    return (
+    pages = [
         summary,
         tuple(fan_lines),
         tuple(fit(line) for line in internal),
         tuple(fit(line) for line in external),
-    )
+    ]
+    fault_page = _fault_page(status.get("faults"))
+    if fault_page is not None:
+        pages.append(fault_page)
+    return tuple(pages)
 
 
 def pixel_on(buffer, width, x, y):

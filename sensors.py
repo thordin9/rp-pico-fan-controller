@@ -69,7 +69,9 @@ class SensorHub:
     def _one(self, name, device):
         if device is not None:
             try:
-                return device.status()
+                status = device.status()
+                status["raw"] = getattr(device, "last_raw", None)
+                return status
             except Exception as exc:
                 status = bmp280.disabled_status()
                 status["enabled"] = True

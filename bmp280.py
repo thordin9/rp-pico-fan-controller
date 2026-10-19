@@ -10,6 +10,8 @@ The chip id register 0xD0 must read 0x58. Anything else is refused.
 import time
 
 CHIP_ID_BMP280 = 0x58
+# Uncompensated registers read 0x80000 until the first conversion is ready.
+ADC_NOT_READY = 0x80000
 
 REG_CALIB = 0x88
 REG_ID = 0xD0
@@ -159,6 +161,7 @@ class Bmp280:
         self._ready = False
         self._permanent = False
         self._scanned = False
+        self.last_raw = None
         self._status = _blank_status(True)
 
     def status(self):
@@ -239,6 +242,10 @@ class Bmp280:
                 return self.status()
         try:
             adc_p, adc_t = unpack_sample(self._read(REG_PRESS_MSB, SAMPLE_LEN))
+            self.last_raw = (adc_p, adc_t)
+            if adc_p == ADC_NOT_READY or adc_t == ADC_NOT_READY:
+                self._fail("not ready", scan=False)
+                return self.status()
             temp_c, pressure_pa = compensate(adc_t, adc_p, self._calib)
         except Exception as exc:
             self._ready = False
