@@ -21,6 +21,9 @@ import fan
 from web import HttpServer, resolve_auth, AUTH_DISABLED_WARNING
 import metrics
 import wifi
+import settings as settings_mod
+import sensors as sensors_mod
+import display as display_mod
 
 HTTP_POLL_MS = 50
 HTTP_RESTART_MS = 2000
@@ -131,12 +134,112 @@ def _start_http(ctrl, auth):
     return http
 
 
+def sample_peripherals(ctrl, sensors, display, elapsed_s, now_ms, feed=None):
+    """One control sample. Peripheral faults are contained.
+
+    ``feed`` is the watchdog kick. It runs on the way in and on the way out
+    so a slow or failed BMP280 or OLED update cannot skip a kick by itself.
+    The caller still feeds on the fast 10 ms path.
+    """
+
+    def _feed():
+        if feed is None:
+            return
+        try:
+            feed()
+        except Exception as exc:
+            print("wdt: feed failed:", exc)
+
+    _feed()
+    internal_c = None
+    internal_ok = False
+    delta = None
+    if sensors is not None:
+        try:
+            snap = sensors.read()
+        except Exception as exc:
+            print("bmp280: read failed:", exc)
+            snap = None
+        if isinstance(snap, dict):
+            ctrl.note_sensors(snap)
+            internal = (snap.get("sensors") or {}).get("internal") or {}
+            internal_ok = bool(internal.get("ok")) and internal.get("temp_c") is not None
+            internal_c = internal.get("temp_c") if internal_ok else None
+            delta = snap.get("pressure_delta_pa")
+    try:
+        ctrl.tick(
+            elapsed_s,
+            internal_c=internal_c,
+            internal_ok=internal_ok,
+            pressure_delta_pa=delta,
+        )
+    except Exception as exc:
+        print("fan: tick failed:", exc)
+    if display is not None:
+        try:
+            ctrl.note_oled(display.update(ctrl.status_dict(), now_ms))
+        except Exception as exc:
+            print("oled: update failed:", exc)
+    _feed()
+
+
+def _open_peripherals(loaded, feed):
+    """Open the optional BMP280s and OLED. Returns (sensors, display).
+
+    Both are None when that peripheral is disabled. A missing part returns
+    a live object whose status says it failed; it does not raise.
+    """
+    want_sensor = loaded["internal_enabled"] or loaded["external_enabled"]
+    want_oled = loaded["oled_enabled"]
+    if not want_sensor and not want_oled:
+        print("peripherals: BMP280 and OLED disabled")
+        return None, None
+    factory = sensors_mod.machine_i2c_factory(
+        loaded["i2c_freq"], loaded["i2c_timeout_us"]
+    )
+    pool = sensors_mod.BusPool(factory)
+    hub = None
+    oled = None
+    if want_sensor:
+        try:
+            hub = sensors_mod.build_sensors(loaded, pool, feed=feed)
+        except Exception as exc:
+            print("bmp280: setup failed:", exc)
+            hub = None
+    if want_oled:
+        if feed is not None:
+            try:
+                feed()
+            except Exception:
+                pass
+        try:
+            oled = display_mod.build_oled(loaded, pool)
+        except Exception as exc:
+            print("oled: setup failed:", exc)
+            oled = None
+        if feed is not None:
+            try:
+                feed()
+            except Exception:
+                pass
+    return hub, oled
+
+
 def main():
     global _ctrl
     led = _make_led()
+    loaded, problems = settings_mod.load_settings(config)
+    for problem in problems:
+        print("config:", problem)
     ctrl = fan.FanController(
         stall_duty_min=_cfg("STALL_DUTY_MIN", fan.STALL_DUTY_MIN),
         stall_rpm_below=_cfg("STALL_RPM_BELOW", fan.STALL_RPM_BELOW),
+        roles=loaded["fan_roles"],
+        exhaust_ratio=loaded["exhaust_ratio"],
+        exhaust_offset=loaded["exhaust_offset"],
+        pressure_loop=loaded["pressure_loop_enabled"],
+        pressure_target_pa=loaded["pressure_target_pa"],
+        pressure_loop_gain=loaded["pressure_loop_gain"],
     )
     ctrl.init_hardware()
     _ctrl = ctrl
@@ -165,6 +268,14 @@ def main():
         print("Loaded overrides from", fan.OVERRIDES_PATH)
     else:
         print("No overrides file — all fans auto")
+    print(
+        "Airflow: {} exhaust=intake*{:.2f}{:+.2f} pressure_loop={}".format(
+            "/".join(ctrl.roles),
+            ctrl.exhaust_ratio,
+            ctrl.exhaust_offset,
+            "on" if ctrl.pressure_loop else "off",
+        )
+    )
 
     auth = resolve_auth(_cfg("HTTP_USER", ""), _cfg("HTTP_PASSWORD", ""))
     if auth is None:
@@ -201,6 +312,19 @@ def main():
     # must not trip the watchdog. Association itself is polled below, and the
     # loop feeds on every pass, including the fast 10 ms sleep.
     _start_wdt()
+    _feed_wdt()
+    sensor_hub, oled = _open_peripherals(loaded, _feed_wdt)
+    _feed_wdt()
+    if sensor_hub is not None:
+        try:
+            ctrl.note_sensors(sensor_hub.snapshot())
+        except Exception as exc:
+            print("bmp280: status failed:", exc)
+    if oled is not None:
+        try:
+            ctrl.note_oled(oled.status())
+        except Exception as exc:
+            print("oled: status failed:", exc)
 
     http = None
     last = time.ticks_ms()
@@ -245,7 +369,9 @@ def main():
         elapsed_s = elapsed_ms / 1000.0
         # Accumulate in a Python int. ticks_diff(now, boot) wraps after ~6 days.
         uptime_ms += elapsed_ms
-        ctrl.tick(elapsed_s)
+        # BMP280 and OLED run on this 1 s edge only. The fast path above
+        # keeps feeding the watchdog and polling HTTP while they talk.
+        sample_peripherals(ctrl, sensor_hub, oled, elapsed_s, now, feed=_feed_wdt)
         ctrl.uptime_s = uptime_ms // 1000
 
         parts = " ".join(
@@ -258,8 +384,12 @@ def main():
             )
             for i in range(fan.FAN_COUNT)
         )
+        delta = ctrl.pressure_delta_pa
+        delta_s = "  dP=--" if delta is None else "  dP={:+.0f}Pa".format(delta)
         print(
-            "die={:5.1f}°C  {}  wifi={}".format(ctrl.die_c, parts, ctrl.wifi)
+            "die={:5.1f}°C ctl={:5.1f}°C src={}{}  {}  wifi={}".format(
+                ctrl.die_c, ctrl.control_c, ctrl.temp_source, delta_s, parts, ctrl.wifi
+            )
         )
 
 
