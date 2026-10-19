@@ -45,7 +45,7 @@ Full wiring, including the shared-bus alternative, is in [docs/wiring.md](docs/w
 - A regulated 5 V supply for VSYS (USB is enough on the bench)
 - Four 10 kΩ resistors, one per tach wire
 - Optional: two BMP280 modules hardwired to `0x76`, a 128×32 SSD1306 at `0x3C`, and 4.7 kΩ I2C pull-ups if the modules do not already have them
-- Optional printed case: [enclosure/README.md](enclosure/README.md)
+- Optional indoor printed case: [enclosure/README.md](enclosure/README.md)
 
 ### Wire
 
