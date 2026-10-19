@@ -6,9 +6,11 @@ MicroPython firmware for a **Raspberry Pi Pico W** that drives **up to four 4-pi
 - **Per-fan tach** on **GP14 / GP13 / GP12 / GP11** (rising IRQ, 2 pulses/rev → RPM each)
 - **Die temp** via **ADC(4)** — **not ambient air temperature**
 - **Auto / manual** per fan — manual overrides persist in `overrides.json` on the Pico
-- **Onboard LED** via `Pin("LED")` on Pico W (falls back to GP25 on classic Pico)
-- **Ctrl+C fail-safe**: all PWM → 100%, LED on (does **not** wipe overrides)
-- **Optional Wi-Fi** (Pico W): edit [`config.py`](config.py), browse `http://<pico-ip>/`
+- **Onboard LED** via `Pin("LED")` on Pico W (falls back to GP25 on classic Pico). Below 50% duty it blinks every 500 ms; at 50% or more it stays on
+- **Hardware watchdog** (`machine.WDT`, 8 s by default) fed from the main loop
+- **HTTP Basic Auth** on every endpoint, including `/metrics` (disable only by leaving the credentials empty)
+- **Ctrl+C fail-safe**: all PWM → 100%, LED on (does **not** wipe overrides). With the watchdog armed, the board then reboots into normal control
+- **Optional Wi-Fi** (Pico W): edit [`config.py`](config.py), browse `http://<pico-ip>/`. The link is monitored and reconnected without stopping the fans
 
 Typical idle die readings are about **~27–35 °C**. The curve is tuned so **~30 °C die stays at a quiet low duty**, not full speed.
 
@@ -171,44 +173,85 @@ flowchart TB
 | **35 → 55 °C** | Linear ramp 18% → 100% |
 | **≥ 55 °C** (`MAX_TEMP_C`) | **100%** |
 
-Tune constants at the top of [`fan.py`](fan.py). Boot holds ~**60% for 1.5 s** on all fans so stubborn fans leave a dead stop, then applies saved overrides.
+Tune constants at the top of [`fan.py`](fan.py). Boot holds ~**60% for 1.5 s** on all fans so stubborn fans leave a dead stop, then applies saved overrides or the curve. That happens **before** Wi-Fi starts, so a slow association cannot leave the fans at 0% PWM.
+
+Die temperature is the average of 8 `ADC(4)` samples. Tach edges closer than 1 ms apart are ignored (noise); a 10 000 RPM fan still has about 3 ms between pulses.
+
+**Stall:** if a fan's commanded duty is at least `STALL_DUTY_MIN` (default **15%**) and the latest 1 s tach sample is below `STALL_RPM_BELOW` (default **1**, so 0 RPM), status and `pico_fan_stall` report a stall. Duty **0%** is a valid "fan off" and does not alarm. A stopped fan sitting on the 18% idle floor does alarm. The RPM shown on the page is smoothed, so it can still be falling on the sample that first raises stall.
 
 ---
 
-## Wi-Fi control page & API (Pico W)
+## Wi-Fi, watchdog, and auth
 
 1. Edit [`config.py`](config.py):
    ```python
    WIFI_SSID = "your-network"
    WIFI_PASSWORD = "your-password"
    WIFI_ENABLED = True
+   WIFI_TIMEOUT_S = 20          # one association attempt
+   WIFI_RETRY_S = 10            # pause after a failed attempt
+
    HTTP_PORT = 80
+   HTTP_USER = "pico"           # both required; empty → auth off + boot warning
+   HTTP_PASSWORD = "change-me"
+   METRICS_REQUIRE_AUTH = True  # False exposes /metrics with no credentials
+
+   WDT_ENABLED = True
+   WDT_TIMEOUT_MS = 8000        # RP2040 maximum is 8388
+
+   STALL_DUTY_MIN = 0.15
+   STALL_RPM_BELOW = 1
    ```
-2. Leave `YOUR_SSID` / `YOUR_PASSWORD` placeholders to run **fan-only** (no radio join).
+2. Leave `YOUR_SSID` to run **fan-only** (no radio join). Fans still spin up and follow the curve.
 3. Flash firmware files (see below).
-4. Watch the serial log for `Wi-Fi: connected, IP=…` then open **`http://<pico-ip>/`**.
+4. Watch the serial log for `Wi-Fi: connected, IP=…` then open **`http://<pico-ip>/`**. The browser prompts for the Basic Auth user and password.
+
+Wi-Fi state (`wifi` in JSON, `pico_fan_wifi_up` in metrics) is refreshed from `isconnected()` about twice a second. Values are `connected`, `connecting`, `timeout`, `offline`, `disabled`, or `unsupported`. `pico_fan_wifi_up` is 1 only while `connected`. After a dropout the link is reported down immediately and `connect()` runs again once the link has stayed down for about a second; a failed attempt waits `WIFI_RETRY_S` before the next try. None of that blocks the 1 s fan loop.
+
+The hardware watchdog is armed **after** `wlan.active(True)` (that call can block) and is fed every pass of the main loop. The association wait itself does not sleep, so it cannot trip the watchdog. The RP2040 cannot turn a watchdog off; Ctrl+C still forces 100% PWM, then the board resets and boots back into normal control. Set `WDT_ENABLED = False` to keep the old "stop in the REPL at 100%" behavior.
+
+If `HTTP_USER` or `HTTP_PASSWORD` is empty, auth is off and the serial log prints a warning. When both are set, **every** path (UI, `/status.json`, `/api/fans…`, `/metrics`, and unknown URLs) returns **401** with `WWW-Authenticate: Basic realm="pico-fan"` until the credentials match. Set `METRICS_REQUIRE_AUTH = False` only when a scraper on a trusted LAN cannot send Basic Auth.
+
+Prometheus scrape with the default (metrics protected):
+
+```yaml
+scrape_configs:
+  - job_name: pico_fan
+    metrics_path: /metrics
+    basic_auth:
+      username: pico
+      password: change-me
+    static_configs:
+      - targets: ["192.168.1.50:80"]
+```
 
 | Method | Path | Purpose |
 |--------|------|---------|
-| `GET` | `/` | Control UI — per-fan duty slider, auto/manual, live stats |
-| `GET` | `/status.json` | JSON status |
-| `POST` | `/api/fans/<id>` | JSON `{"mode":"auto"|"manual","duty":0.0–1.0}` (`id` 1–4; duty required for manual) |
-| `POST` | `/api/fans/<id>/auto` | Clear override for one fan |
+| `GET` | `/` | Control UI — per-fan duty slider, auto/manual, stall, live stats |
+| `GET` | `/status.json` | JSON status (`wifi`, `ip`, `ssid` are JSON-encoded) |
+| `POST` | `/api/fans/<id>` | JSON `{"mode":"auto"\|"manual","duty":0.0–1.0}` (`id` 1–4; duty required for manual). **`Content-Type: application/json` required.** Duty outside 0.0–1.0 is **400** and does not change state |
+| `POST` | `/api/fans/<id>/auto` | Clear override for one fan. Same `Content-Type` requirement |
 | `GET` | `/metrics` | Prometheus text exposition |
+
+`pico_fan_duty_ratio` is labeled only with `fan`. Mode changes would otherwise split the time series; manual vs auto is `pico_fan_override` (1 = manual). `pico_fan_stall{fan}` is 1 when that fan is stalled.
 
 Examples:
 
 ```bash
-curl -X POST http://PICO_IP/api/fans/2 -H 'Content-Type: application/json' \
+curl -u pico:change-me http://PICO_IP/status.json
+curl -u pico:change-me -X POST http://PICO_IP/api/fans/2 \
+  -H 'Content-Type: application/json' \
   -d '{"mode":"manual","duty":0.4}'
-curl -X POST http://PICO_IP/api/fans/2/auto
-curl http://PICO_IP/status.json
-curl http://PICO_IP/metrics
+curl -u pico:change-me -X POST http://PICO_IP/api/fans/2/auto \
+  -H 'Content-Type: application/json' -d '{}'
+curl -u pico:change-me http://PICO_IP/metrics
 ```
+
+The control page's `fetch` calls send `Content-Type: application/json` and surface a failure on the page when the response is not OK. Basic Auth is not attached to cross-site browser requests, and a form post cannot satisfy the JSON content type, which is what blocks the old cross-site control request.
 
 **Overrides:** successful control POSTs write `overrides.json` on the Pico. Reboot restores them. Fail-safe (Ctrl+C) forces 100% now but does **not** rewrite the file.
 
-**Secrets:** do not commit real Wi-Fi passwords to a public remote.
+**Secrets:** do not commit real Wi-Fi or HTTP passwords to a public remote.
 
 ---
 
@@ -222,7 +265,7 @@ curl http://PICO_IP/metrics
 
 ### 2. Copy firmware
 
-**Thonny:** save `config.py`, `main.py`, `fan.py`, `web.py`, and `metrics.py` to the Pico.
+**Thonny:** save `config.py`, `main.py`, `fan.py`, `wifi.py`, `web.py`, and `metrics.py` to the Pico.
 
 **mpremote:**
 
@@ -230,6 +273,7 @@ curl http://PICO_IP/metrics
 mpremote connect list
 mpremote connect auto cp config.py :config.py
 mpremote connect auto cp fan.py :fan.py
+mpremote connect auto cp wifi.py :wifi.py
 mpremote connect auto cp web.py :web.py
 mpremote connect auto cp metrics.py :metrics.py
 mpremote connect auto cp main.py :main.py
@@ -239,14 +283,14 @@ mpremote connect auto reset
 Serial log (1 Hz) example:
 
 ```text
-die= 30.2°C  F1=a= 18%= 820 F2=m= 40%= 815 F3=a= 18%= 830 F4=a= 18%=   0
+die= 30.2°C  F1=a= 18%= 820 F2=m= 40%= 815 F3=a= 18%= 830 F4=a= 18%=   0!  wifi=connected
 ```
 
-(`a` = auto, `m` = manual)
+(`a` = auto, `m` = manual, trailing `!` = stall)
 
 ### 3. Stop safely
 
-**Ctrl+C** in the REPL → all PWM **100%**, LED on. Soft reset afterward reloads overrides from flash.
+**Ctrl+C** in the REPL → all PWM **100%**, LED on. With `WDT_ENABLED` (the default) the watchdog then reboots the board, which loads overrides and resumes the curve. With the watchdog disabled, Ctrl+C stays in the REPL at 100% until you reset.
 
 ---
 
@@ -264,21 +308,23 @@ python3 -m unittest discover -s tests -v
 
 | File | Role |
 |------|------|
-| [`main.py`](main.py) | Boot, Wi-Fi, sample loop |
+| [`main.py`](main.py) | Boot, watchdog, sample loop |
 | [`fan.py`](fan.py) | PWM/tach, thermal curve, modes, overrides |
-| [`web.py`](web.py) | HTTP UI / API / counters |
+| [`wifi.py`](wifi.py) | Non-blocking STA monitor / reconnect |
+| [`web.py`](web.py) | HTTP UI / API / Basic Auth |
 | [`metrics.py`](metrics.py) | Prometheus text |
-| [`config.py`](config.py) | Wi-Fi / port |
+| [`config.py`](config.py) | Wi-Fi, auth, watchdog, stall |
 
 ---
 
 ## Device smoke checklist
 
-1. Serial shows per-fan PWM pins and `die=… F1=a=…`
-2. Open `http://<ip>/` — set fan 2 manual 40%; others track temp
-3. Reboot — fan 2 still manual 40%
-4. `curl http://<ip>/metrics` shows `pico_fan_*` metrics
-5. Ctrl+C — fans full speed; soft reboot restores overrides
+1. Serial shows the PWM pin line before `Wi-Fi: starting radio` (fans are already past the 0% boot gap)
+2. With auth configured, a bare `curl` gets **401** and `WWW-Authenticate`
+3. Open `http://<ip>/` — set fan 2 manual 40%; others track temp
+4. Reboot — fan 2 still manual 40%
+5. `curl -u user:pass http://<ip>/metrics` shows `pico_fan_*` metrics, including `pico_fan_stall` and `pico_fan_override`
+6. Ctrl+C — fans full speed; with the watchdog on, the board reboots and restores overrides
 
 ---
 
@@ -295,4 +341,4 @@ python3 -m unittest discover -s tests -v
 
 ## License
 
-MIT — use and adapt freely.
+MIT — see [`LICENSE`](LICENSE). Copyright (c) 2026 thordin9.
