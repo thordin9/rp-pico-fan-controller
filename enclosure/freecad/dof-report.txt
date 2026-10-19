@@ -1,5 +1,5 @@
 pico_case_base	shell	DoF=0	solve=0	fully_constrained=True	redundant=[]	conflicting=[]	malformed=[]	partial=[]	status=Valid
-pico_case_base	shell_round	DoF=0	solve=0	fully_constrained=True	redundant=[]	conflicting=[]	malformed=[]	partial=[]	status=Touched
+pico_case_base	shell_round	DoF=0	solve=0	fully_constrained=True	redundant=[]	conflicting=[]	malformed=[]	partial=[]	status=Valid
 pico_case_base	rail_n	DoF=0	solve=0	fully_constrained=True	redundant=[]	conflicting=[]	malformed=[]	partial=[]	status=Valid
 pico_case_base	rail_p	DoF=0	solve=0	fully_constrained=True	redundant=[]	conflicting=[]	malformed=[]	partial=[]	status=Valid
 pico_case_base	zip_n	DoF=0	solve=0	fully_constrained=True	redundant=[]	conflicting=[]	malformed=[]	partial=[]	status=Valid
@@ -41,7 +41,7 @@ pico_case_base	ins_2	DoF=0	solve=0	fully_constrained=True	redundant=[]	conflicti
 pico_case_base	clr_2	DoF=0	solve=0	fully_constrained=True	redundant=[]	conflicting=[]	malformed=[]	partial=[]	status=Valid
 pico_case_base	ins_3	DoF=0	solve=0	fully_constrained=True	redundant=[]	conflicting=[]	malformed=[]	partial=[]	status=Valid
 pico_case_base	clr_3	DoF=0	solve=0	fully_constrained=True	redundant=[]	conflicting=[]	malformed=[]	partial=[]	status=Valid
-RESULT	pico_case_base	volume_solid=6265.098	volume_openscad_stl=6269.026	delta=-3.928	rel=0.000627	bbox_delta=0.0000	probes=10
+RESULT	pico_case_base	volume_solid=6205.696	volume_openscad_stl=6207.752	delta=-2.056	rel=0.000331	bbox_delta=0.0000	probes=16
 pico_case_lid	plate	DoF=0	solve=0	fully_constrained=True	redundant=[]	conflicting=[]	malformed=[]	partial=[]	status=Valid
 pico_case_lid	plate_round	DoF=0	solve=0	fully_constrained=True	redundant=[]	conflicting=[]	malformed=[]	partial=[]	status=Valid
 pico_case_lid	skirt	DoF=0	solve=0	fully_constrained=True	redundant=[]	conflicting=[]	malformed=[]	partial=[]	status=Valid
@@ -84,7 +84,7 @@ bmp280_int_body	post1	DoF=0	solve=0	fully_constrained=True	redundant=[]	conflict
 bmp280_int_body	bar	DoF=0	solve=0	fully_constrained=True	redundant=[]	conflicting=[]	malformed=[]	partial=[]	status=Valid
 bmp280_int_body	snap_n	DoF=0	solve=0	fully_constrained=True	redundant=[]	conflicting=[]	malformed=[]	partial=[]	status=Valid
 bmp280_int_body	snap_p	DoF=0	solve=0	fully_constrained=True	redundant=[]	conflicting=[]	malformed=[]	partial=[]	status=Valid
-RESULT	bmp280_int_body	volume_solid=3282.404	volume_openscad_stl=3285.877	delta=-3.473	rel=0.001057	bbox_delta=0.0000	probes=4
+RESULT	bmp280_int_body	volume_solid=3228.131	volume_openscad_stl=3231.780	delta=-3.649	rel=0.001129	bbox_delta=0.0000	probes=6
 bmp280_ext_body	shell	DoF=0	solve=0	fully_constrained=True	redundant=[]	conflicting=[]	malformed=[]	partial=[]	status=Valid
 bmp280_ext_body	shell_round	DoF=0	solve=0	fully_constrained=True	redundant=[]	conflicting=[]	malformed=[]	partial=[]	status=Valid
 bmp280_ext_body	rail_n	DoF=0	solve=0	fully_constrained=True	redundant=[]	conflicting=[]	malformed=[]	partial=[]	status=Valid
@@ -106,7 +106,7 @@ bmp280_ext_body	post1	DoF=0	solve=0	fully_constrained=True	redundant=[]	conflict
 bmp280_ext_body	bar	DoF=0	solve=0	fully_constrained=True	redundant=[]	conflicting=[]	malformed=[]	partial=[]	status=Valid
 bmp280_ext_body	snap_n	DoF=0	solve=0	fully_constrained=True	redundant=[]	conflicting=[]	malformed=[]	partial=[]	status=Valid
 bmp280_ext_body	snap_p	DoF=0	solve=0	fully_constrained=True	redundant=[]	conflicting=[]	malformed=[]	partial=[]	status=Valid
-RESULT	bmp280_ext_body	volume_solid=3282.404	volume_openscad_stl=3285.877	delta=-3.473	rel=0.001057	bbox_delta=0.0000	probes=3
+RESULT	bmp280_ext_body	volume_solid=3228.131	volume_openscad_stl=3231.780	delta=-3.649	rel=0.001129	bbox_delta=0.0000	probes=4
 bmp280_int_lid	plate	DoF=0	solve=0	fully_constrained=True	redundant=[]	conflicting=[]	malformed=[]	partial=[]	status=Valid
 bmp280_int_lid	plate_round	DoF=0	solve=0	fully_constrained=True	redundant=[]	conflicting=[]	malformed=[]	partial=[]	status=Valid
 bmp280_int_lid	skirt	DoF=0	solve=0	fully_constrained=True	redundant=[]	conflicting=[]	malformed=[]	partial=[]	status=Valid
@@ -144,7 +144,7 @@ mount_pico	lead1	DoF=0	solve=0	fully_constrained=True	redundant=[]	conflicting=[
 mount_pico	screw_0	DoF=0	solve=0	fully_constrained=True	redundant=[]	conflicting=[]	malformed=[]	partial=[]	status=Valid
 mount_pico	screw_1	DoF=0	solve=0	fully_constrained=True	redundant=[]	conflicting=[]	malformed=[]	partial=[]	status=Valid
 mount_pico	fzip	DoF=0	solve=0	fully_constrained=True	redundant=[]	conflicting=[]	malformed=[]	partial=[]	status=Valid
-RESULT	mount_pico	volume_solid=2646.310	volume_openscad_stl=2658.616	delta=-12.306	rel=0.004629	bbox_delta=0.0000	probes=3
+RESULT	mount_pico	volume_solid=2656.798	volume_openscad_stl=2658.616	delta=-1.818	rel=0.000684	bbox_delta=0.0000	probes=3
 mount_bmp	jaw0	DoF=0	solve=0	fully_constrained=True	redundant=[]	conflicting=[]	malformed=[]	partial=[]	status=Valid
 mount_bmp	stop	DoF=0	solve=0	fully_constrained=True	redundant=[]	conflicting=[]	malformed=[]	partial=[]	status=Valid
 mount_bmp	jaw1	DoF=0	solve=0	fully_constrained=True	redundant=[]	conflicting=[]	malformed=[]	partial=[]	status=Valid
@@ -156,4 +156,4 @@ mount_bmp	lead1	DoF=0	solve=0	fully_constrained=True	redundant=[]	conflicting=[]
 mount_bmp	screw_0	DoF=0	solve=0	fully_constrained=True	redundant=[]	conflicting=[]	malformed=[]	partial=[]	status=Valid
 mount_bmp	screw_1	DoF=0	solve=0	fully_constrained=True	redundant=[]	conflicting=[]	malformed=[]	partial=[]	status=Valid
 mount_bmp	fzip	DoF=0	solve=0	fully_constrained=True	redundant=[]	conflicting=[]	malformed=[]	partial=[]	status=Valid
-RESULT	mount_bmp	volume_solid=1599.922	volume_openscad_stl=1612.227	delta=-12.305	rel=0.007633	bbox_delta=0.0000	probes=2
+RESULT	mount_bmp	volume_solid=1610.410	volume_openscad_stl=1612.227	delta=-1.817	rel=0.001127	bbox_delta=0.0000	probes=2

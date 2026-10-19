@@ -22,7 +22,7 @@ The thermal curve itself is not in this file. In [`fan.py`](../fan.py), `MIN_TEM
 | `I2C_FREQ` | `100000` | I2C clock in hertz | Lower it if a long cable is noisy |
 | `I2C_TIMEOUT_US` | `50000` | Hardware I2C timeout, 50 ms | Leave it. A stuck bus must not block past the watchdog |
 | `INTERNAL_BMP280_ENABLED` | `False` | Read the internal BMP280 | `True` after that sensor is wired |
-| `INTERNAL_BMP280_ADDR` | `0x76` | 7-bit I2C address | Leave `0x76` for a hardwired SDO-to-GND module |
+| `INTERNAL_BMP280_ADDR` | `0x76` | 7-bit I2C address | Leave `0x76` when SDO is tied to GND |
 | `INTERNAL_BMP280_I2C_ID` | `0` | I2C controller | Leave 0. This is the bus shared with the OLED |
 | `INTERNAL_BMP280_SDA` | `4` | SDA GPIO | Leave GP4 unless you move the whole bus |
 | `INTERNAL_BMP280_SCL` | `5` | SCL GPIO | Leave GP5 unless you move the whole bus |

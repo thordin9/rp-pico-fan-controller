@@ -44,7 +44,7 @@ Full wiring, including the shared-bus alternative, is in [docs/wiring.md](docs/w
 - A 12 V supply sized for all fans at full speed, plus margin
 - A regulated 5 V supply for VSYS (USB is enough on the bench)
 - Four 10 kΩ resistors, one per tach wire
-- Optional: two BMP280 modules hardwired to `0x76`, a 128×32 SSD1306 at `0x3C`, and 4.7 kΩ I2C pull-ups if the modules do not already have them
+- Optional: two BMP280 modules at `0x76` (CSB tied to 3V3, SDO tied to GND), a 128×32 SSD1306 at `0x3C`, and 4.7 kΩ I2C pull-ups if the modules do not already have them
 - Optional indoor printed case: [enclosure/README.md](enclosure/README.md)
 
 ### Wire
@@ -144,7 +144,7 @@ flowchart LR
   ctrl --> page
 ```
 
-Both BMP280s stay at `0x76` because their SDO pins are tied to ground on the module. They use two I2C controllers. Putting the external sensor at `0x77` on I2C0 is an alternative only when that module's SDO can be tied to 3V3. The printed enclosure is built for the two-bus wiring.
+Both BMP280s stay at `0x76` because **SDO is tied to GND**. **CSB is tied to 3V3** so the chip powers up in I2C mode. Make both ties with a wire. Do not trust the module's onboard pull resistors. They use two I2C controllers. Putting the external sensor at `0x77` on I2C0 is an alternative only when that module's SDO is tied to 3V3 instead. The printed enclosure is built for the two-bus wiring.
 
 ## Pins
 
@@ -161,7 +161,69 @@ USB at the top. Pin 1 is GP0. Pin 40 is VBUS. Ground is pins 3, 8, 13, 18, 23, 2
 | I2C0 SDA / SCL | GP4 / GP5 | 6 / 7 |
 | I2C1 SDA / SCL | GP6 / GP7 | 9 / 10 |
 
-I2C0 carries the internal BMP280 and the OLED. I2C1 carries the external BMP280. Diagrams and the shared-bus alternative are in [docs/wiring.md](docs/wiring.md).
+I2C0 carries the internal BMP280 and the OLED. I2C1 carries the external BMP280. Each BMP280 module has six pins. Tie CSB and SDO yourself, either on a 6-wire cable or with two jumpers soldered on the module.
+
+```mermaid
+flowchart LR
+  p36["3V3 pin 36"]
+  gnd["Pico GND"]
+  subgraph internal [Internal BMP280]
+    iVCC["VCC"]
+    iGND["GND"]
+    iSDA["SDA"]
+    iSCL["SCL"]
+    iCSB["CSB"]
+    iSDO["SDO"]
+  end
+  subgraph external [External BMP280]
+    eVCC["VCC"]
+    eGND["GND"]
+    eSDA["SDA"]
+    eSCL["SCL"]
+    eCSB["CSB"]
+    eSDO["SDO"]
+  end
+  p36 --> iVCC
+  p36 --> iCSB
+  gnd --> iGND
+  gnd --> iSDO
+  iSDA --> gp4["GP4 pin 6"]
+  iSCL --> gp5["GP5 pin 7"]
+  p36 --> eVCC
+  p36 --> eCSB
+  gnd --> eGND
+  gnd --> eSDO
+  eSDA --> gp6["GP6 pin 9"]
+  eSCL --> gp7["GP7 pin 10"]
+```
+
+Option (a) carries CSB and SDO in the cable. Option (b) solders CSB to VCC and SDO to GND on the module, and the cable is VCC, GND, SCL, SDA only. The full tables are below. The shared-bus alternative, which moves the external SDO to 3V3, is in [docs/wiring.md](docs/wiring.md).
+
+### Internal BMP280 pins
+
+I2C0, address `0x76`.
+
+| Module pin | Lands on | Option (a), 6-wire cable | Option (b), jumper on the module |
+|------------|----------|--------------------------|----------------------------------|
+| VCC | 3V3 pin 36 | wire in the cable | wire in the cable |
+| GND | Pico GND | wire in the cable | wire in the cable |
+| SCL | GP5 pin 7 | wire in the cable | wire in the cable |
+| SDA | GP4 pin 6 | wire in the cable | wire in the cable |
+| CSB | 3V3, high before power-up | wire to 3V3 pin 36 | solder CSB to VCC |
+| SDO | GND, address `0x76` | wire to Pico GND | solder SDO to GND |
+
+### External BMP280 pins
+
+I2C1, address `0x76`.
+
+| Module pin | Lands on | Option (a), 6-wire cable | Option (b), jumper on the module |
+|------------|----------|--------------------------|----------------------------------|
+| VCC | 3V3 pin 36 | wire in the cable | wire in the cable |
+| GND | Pico GND | wire in the cable | wire in the cable |
+| SCL | GP7 pin 10 | wire in the cable | wire in the cable |
+| SDA | GP6 pin 9 | wire in the cable | wire in the cable |
+| CSB | 3V3, high before power-up | wire to 3V3 pin 36 | solder CSB to VCC |
+| SDO | GND, address `0x76` | wire to Pico GND | solder SDO to GND |
 
 ## Guides
 

@@ -64,22 +64,49 @@ The OLED nest is shifted 6 mm toward the antenna so it clears the BOOTSEL hole a
 
 ## Cable routing
 
-The two BMP280 boards are both hardwired to I2C address **0x76** (SDO already tied to GND on the PCB). They cannot share a bus, and no SDO strap is added in the housing. CSB stays on the module as well: I2C mode wants it high, and these boards already do that. Do not bring SDO or CSB out through the cable slot. If a different breakout leaves either pin floating, tie it at the module (SDO to GND, CSB to 3V3), still with only four wires leaving the housing.
+Each BMP280 module has six pins: **VCC, GND, SCL, SDA, CSB, SDO**. Tie **CSB to 3V3** before power-up (that forces I2C mode) and **SDO to GND** (address **0x76**). Do this with a wire. The onboard pull resistors are not enough.
 
-The firmware can instead put a sensor at **0x77** on I2C0 when that module's SDO is free and tied to 3V3. These printed parts are for the default, not that option: two 0x76 boards, two buses, two cable exits.
+- **(a)** A 6-wire cable to the Pico. CSB joins 3V3 pin 36. SDO joins Pico GND.
+- **(b)** Short jumpers soldered on the module, CSB to VCC and SDO to GND. The cable stays four wires.
 
-Each sensor is a **4-wire** cable: **VCC, GND, SCL, SDA**. The Pico case has a separate exit for each cable, plus two fan exits and one power exit. The OLED does not use those exits; its PH2.0 lead stays inside the case.
+The two boards both end at `0x76`, so they cannot share a bus. The firmware can instead put a sensor at **0x77** on I2C0 when that module's SDO is tied to 3V3. These printed parts are for two `0x76` boards, two buses, and two cable exits. The pin-by-pin wiring is in [docs/wiring.md](../docs/wiring.md).
+
+The sensor housing exit is a through opening, **16.5 × 6.0 mm**, on the pin-row face. It sits above the slide rails and clear of the bracket, and it is large enough for a 1×6 Dupont shell (15.24 mm wide) or a bundled 6-wire lead. A cleat inside the housing, posts beside the opening and a bar on the top edge, takes one zip tie without filling the hole. [`renders/bmp280_cable_exit.png`](renders/bmp280_cable_exit.png) shows that face.
+
+![BMP280 cable exit](renders/bmp280_cable_exit.png)
+
+The Pico case has a separate exit for each cable, plus two fan exits and one power exit. INT and EXT are **8.0 × 5.0 mm**, so the 6-wire bundle from option (a) passes after the 1×6 shell stays on the module. The OLED does not use those exits; its PH2.0 lead stays inside the case. Each Pico cleat sits on the top edge of its opening, so the hole stays full height.
 
 | Exit (debossed) | Wall | Lands on | Cable |
 | --- | --- | --- | --- |
 | **FAN** (two slots) | Cable wall, USB end | GP15–GP18 PWM, GP14–GP11 tach | Split the four fans across the two slots, two fans each. Tach pull-ups are 10 kΩ to Pico **3V3** |
-| **INT** | Cable wall | **I2C0: GP4 SDA, GP5 SCL** | Internal BMP280. VCC from Pico **3V3**, GND. Same two GPIO as the OLED |
-| **EXT** | Cable wall, antenna end | **I2C1: GP6 SDA, GP7 SCL** | External BMP280. VCC from Pico **3V3**, GND. Nothing else on this bus |
+| **INT** | Cable wall | **I2C0: GP4 SDA pin 6, GP5 SCL pin 7** | Internal BMP280. See the pin table below |
+| **EXT** | Cable wall, antenna end | **I2C1: GP6 SDA pin 9, GP7 SCL pin 10** | External BMP280. See the pin table below |
 | **PWR** | Opposite wall | VSYS and the fan supply | Regulated 5 V into **VSYS (physical pin 39)**, external 12 V for the fans, and the common ground |
 
-The OLED PH2.0 (VCC, GND, SDA, SCL) is plugged inside the case onto the same I2C0 pins as the INT cable: VCC and GND to 3V3 and GND, SDA to GP4, SCL to GP5. Parallel the INT cable onto those four points. Do not also connect the EXT cable there.
+### Internal sensor, every module pin
 
-A zip-tie cleat crosses each exit, one tie per cable, so the two I2C runs cannot be pulled into each other's opening. On the sensor housings the cleat is just inside the 4-wire slot.
+| Module pin | Lands on | Option (a), 6-wire cable out the INT exit | Option (b), jumper on the module |
+| --- | --- | --- | --- |
+| VCC | Pico 3V3 pin 36 | wire in the cable | wire in the cable |
+| GND | Pico GND | wire in the cable | wire in the cable |
+| SCL | GP5 pin 7 | wire in the cable | wire in the cable |
+| SDA | GP4 pin 6 | wire in the cable | wire in the cable |
+| CSB | 3V3, high before power-up | wire in the cable to 3V3 pin 36 | solder CSB to VCC |
+| SDO | GND, address `0x76` | wire in the cable to Pico GND | solder SDO to GND |
+
+### External sensor, every module pin
+
+| Module pin | Lands on | Option (a), 6-wire cable out the EXT exit | Option (b), jumper on the module |
+| --- | --- | --- | --- |
+| VCC | Pico 3V3 pin 36 | wire in the cable | wire in the cable |
+| GND | Pico GND | wire in the cable | wire in the cable |
+| SCL | GP7 pin 10 | wire in the cable | wire in the cable |
+| SDA | GP6 pin 9 | wire in the cable | wire in the cable |
+| CSB | 3V3, high before power-up | wire in the cable to 3V3 pin 36 | solder CSB to VCC |
+| SDO | GND, address `0x76` | wire in the cable to Pico GND | solder SDO to GND |
+
+The OLED PH2.0 (VCC, GND, SDA, SCL) is plugged inside the case onto the same I2C0 pins as the INT cable: VCC and GND to 3V3 and GND, SDA to GP4, SCL to GP5. It has no CSB or SDO. Parallel the INT cable onto those four points. Do not also connect the EXT cable there. With option (a), the internal CSB shares 3V3 pin 36 and the internal SDO shares a GND pin; they are not OLED signals.
 
 ```mermaid
 flowchart LR
@@ -88,20 +115,22 @@ flowchart LR
     oled["OLED 0x3C PH2.0 stays inside"]
   end
   subgraph inside [INT housing in the room]
-    bmpI["BMP280 0x76"]
+    bmpI["BMP280 0x76 CSB to 3V3 SDO to GND"]
   end
   subgraph outside [EXT housing in the room]
-    bmpE["BMP280 0x76"]
+    bmpE["BMP280 0x76 CSB to 3V3 SDO to GND"]
   end
   fans["12 V fans through the two FAN slots"]
   supply["5 V and 12 V through PWR"]
-  pico -->|"INT: I2C0 GP4 pin 6 SDA, GP5 pin 7 SCL, 3V3 pin 36, GND"| bmpI
-  pico -->|"same four I2C0 points"| oled
-  pico -->|"EXT: I2C1 GP6 pin 9 SDA, GP7 pin 10 SCL, 3V3 pin 36, GND"| bmpE
+  pico -->|"INT option a: VCC, GND, SDA GP4 pin 6, SCL GP5 pin 7, CSB to 3V3 pin 36, SDO to GND"| bmpI
+  pico -->|"OLED: VCC, GND, SDA, SCL on the same I2C0 points"| oled
+  pico -->|"EXT option a: VCC, GND, SDA GP6 pin 9, SCL GP7 pin 10, CSB to 3V3 pin 36, SDO to GND"| bmpE
   pico -->|"FAN: PWM GP15-GP18, tach GP14 GP13 GP12 GP11"| fans
   supply -->|"VSYS pin 39 and common GND"| pico
   supply -->|"12 V to fan pin 2, GND to fan pin 1"| fans
 ```
+
+Option (b) uses the same exits. CSB and SDO stop at the jumpers on the module, and the cable through INT or EXT is VCC, GND, SCL, SDA.
 
 Physical pin numbers use the Pico pinout with USB at the top: pin 1 is GP0, pin 40 is VBUS. Fan tach pull-ups are 10 kΩ to Pico 3V3 pin 36, one resistor per tach wire.
 
@@ -155,7 +184,7 @@ The sensor lids snap on (0.35 mm engagement). There is no screw boss on those li
 3. Fan leads out the two **FAN** slots, INT cable out **INT**, EXT cable out **EXT**, 5 V and 12 V in through **PWR**. One zip tie per cleat.
 4. Plug the OLED into I2C0 (GP4/GP5, 3V3, GND) and slide the module into the lid nest, glass toward the window, PH2.0 toward the USB end. The clips grab the back of the PCB. With the lid closed the active area is the hole in the lid; the chamfer is the wider opening on the outside.
 5. Press the lid on until the four snaps click. BOOTSEL is the round hole near the USB end of the lid. A fingernail notch is on the long side opposite the cable wall.
-6. Sensor boards sit on the four legs, pin row toward the cable slot, chip up. Only four wires leave. Close the lid until the two snaps click. The fingernail notch is opposite the cable side.
+6. Sensor boards sit on the four legs, pin row toward the cable slot, chip up. Option (a) sends six wires out the 16.5 × 6.0 mm exit. Option (b) solders CSB to VCC and SDO to GND on the module, and four wires leave. Zip-tie the lead under the cleat. Close the lid until the two snaps click. The fingernail notch is opposite the cable side.
 7. Leave the case on its flat bottom, tape it down, zip-tie it through the rail slots, or slide a bracket on from the open end of the rails and screw the flange to the wall.
 
 ## Adjusting the model
@@ -166,7 +195,7 @@ From `enclosure/`:
 ./export.sh
 ```
 
-`QUALITY=32 ./export.sh` is a faster mesh. The default is 48. The script refuses a mesh that is not a single shell, and it checks that the USB opening, the separate INT and EXT exits, the OLED window, the BOOTSEL hole, the sensor cable slot, and the lid vents are actually open.
+`QUALITY=32 ./export.sh` is a faster mesh. The default is 48. The script refuses a mesh that is not a single shell, and it checks that the USB opening, the separate INT and EXT exits, the FAN and PWR exits, the OLED window, the BOOTSEL hole, the sensor cable slot, and the lid vents are actually open. Each of those cable checks includes a point past the inner face, so a blind recess fails.
 
 Overrides are normal OpenSCAD `-D` flags, for example:
 

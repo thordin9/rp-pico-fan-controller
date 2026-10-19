@@ -50,8 +50,10 @@ fan_slot_h = 3.4;
 fan_slot_z = 5.2;
 i2c_int_x = 30.0;
 i2c_ext_x = 40.0;
-sensor_slot_l = 6.5;
-sensor_slot_h = 3.4;
+// INT and EXT take a bundled 6-wire Dupont lead (option a in the wiring
+// guide). The 1x6 shell itself stays in the sensor housing.
+sensor_slot_l = 8.0;
+sensor_slot_h = 5.0;
 sensor_slot_z = 5.2;
 pwr_slot_x = 16.0;
 pwr_slot_l = 8.0;
@@ -59,6 +61,7 @@ pwr_slot_h = 4.0;
 pwr_slot_z = 4.8;
 
 cleat_l = 9.0;
+sensor_cleat_l = 9.6;
 pwr_cleat_l = pwr_slot_l + 3.0;
 
 module fit_checks() {
@@ -83,14 +86,18 @@ module fit_checks() {
     header_inner_y = pcb_y0 + (pico_w - pico_row_spacing) / 2 + pico_header_plastic_w / 2;
     nest_y0 = oled_cy - oled_pocket_w / 2 - oled_nest_wall;
     assert(nest_y0 > header_inner_y + 0.30, "OLED nest hits a Pico header");
-    assert(i2c_ext_x - i2c_int_x > sensor_slot_l + 2,
+    assert(i2c_ext_x - i2c_int_x > sensor_slot_l + 1.5,
            "INT and EXT cable exits are not separate openings");
-    assert(sensor_slot_l >= 6 && sensor_slot_h >= 3.2,
-           "Sensor exit is tight for a 4-wire cable");
+    assert(i2c_ext_x - i2c_int_x > sensor_cleat_l,
+           "INT and EXT cleats meet");
+    assert(sensor_slot_l >= 7.5 && sensor_slot_h >= 4.8,
+           "Sensor exit is tight for a bundled 6-wire lead");
+    assert(sensor_slot_z + sensor_slot_h + 1.4 < base_h - skirt_h - 0.4,
+           "Sensor cleat meets the lid skirt");
     assert(i2c_int_x - fan_slot_x[1] > fan_slot_l / 2 + sensor_slot_l / 2 + 1.2,
            "INT exit is not separate from the fan exits");
     assert(cleat_l > fan_slot_l + 1.2, "Fan cleat does not land in the wall");
-    assert(cleat_l > sensor_slot_l + 1.2, "Sensor cleat does not land in the wall");
+    assert(sensor_cleat_l > sensor_slot_l + 1.2, "Sensor cleat does not land in the wall");
     assert(pwr_cleat_l > pwr_slot_l + 1.5, "Power cleat does not land in the wall");
     // Straight-on, the through window covers the active area and stays
     // on the glass. The chamfer is wider, on the outside face.
@@ -190,11 +197,14 @@ module cleat(x, y, z, length) {
 }
 
 module cleats() {
-    cleat(fan_slot_x[0], wall - 0.35, fan_slot_z + fan_slot_h - 1.8, cleat_l);
-    cleat(fan_slot_x[1], wall - 0.35, fan_slot_z + fan_slot_h - 1.8, cleat_l);
-    cleat(i2c_int_x, wall - 0.35, sensor_slot_z + sensor_slot_h - 1.8, cleat_l);
-    cleat(i2c_ext_x, wall - 0.35, sensor_slot_z + sensor_slot_h - 1.8, cleat_l);
-    cleat(pwr_slot_x, outer_w - wall - 1.45, pwr_slot_z + pwr_slot_h - 1.9, pwr_cleat_l);
+    // The bar sits on the top edge of the opening and bites the wall.
+    // A bar across the inner mouth used to leave about 1.6 mm of the
+    // slot, which a lead cannot pass.
+    cleat(fan_slot_x[0], wall - 0.35, fan_slot_z + fan_slot_h, cleat_l);
+    cleat(fan_slot_x[1], wall - 0.35, fan_slot_z + fan_slot_h, cleat_l);
+    cleat(i2c_int_x, wall - 0.35, sensor_slot_z + sensor_slot_h, sensor_cleat_l);
+    cleat(i2c_ext_x, wall - 0.35, sensor_slot_z + sensor_slot_h, sensor_cleat_l);
+    cleat(pwr_slot_x, outer_w - wall - 1.45, pwr_slot_z + pwr_slot_h, pwr_cleat_l);
 }
 
 module base() {
