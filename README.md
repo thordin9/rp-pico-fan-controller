@@ -336,13 +336,44 @@ exhaust = clamp(static + trim, 0, 1)
 
 then lifts the result out of the `(0, 18%)` band again. Defaults are target **5 Pa**, gain **0.0005** duty per pascal (0.5% duty for a 10 Pa error), and trim cap **±0.05** (5% duty). The trim is computed from the static duty every sample. It does not accumulate, so a sensor offset cannot wind the fans up to the stops: a 100 Pa error is already at the cap, and the next sample starts over from the ratio. Intake fans are not trimmed.
 
-If either BMP280 is missing or the read fails, `pressure_delta_pa` is null, the trim is skipped, and exhaust stays on the static ratio. Status, the web page, the OLED (`on` / `idle` / `off` on the delta line), and the metrics say which:
+If either BMP280 is missing, the read fails, or a sanity check rejects the sample, `pressure_delta_pa` is null, the trim is skipped, and exhaust stays on the static ratio. Status, the web page, the OLED (`on` / `idle` / `off` on the delta line), and the metrics say which:
 
 | State | `pressure_loop_enabled` | `pressure_loop_active` | Meaning |
 |-------|-------------------------|------------------------|---------|
 | off | false | false | Config turned the loop off |
-| idle | true | false | Loop is configured, but a sensor is missing or failed, so the static ratio is in use |
+| idle | true | false | Loop is configured, but a sensor is missing, failed, or outside its sanity limits, so the static ratio is in use |
 | active | true | true | Both BMP280s are ok and the trim was applied this sample |
+
+---
+
+## Sensor faults
+
+Every BMP280 sample, the die temperature, each tach reading, and the pressure difference is checked before it can move a fan. A rejected sample does not drive the auto curve or the pressure loop. The curve falls back to the die temperature when the internal BMP280 is rejected, and the pressure loop falls back to the static intake/exhaust ratio when either pressure or the difference is rejected. A rejected die reading keeps the last good die temperature for `SENSOR_STALE_S` seconds, then the curve uses 55 °C (100% duty) so a dead ADC cannot idle the fans.
+
+The web page shows a red badge once the fault latches, for example `External BMP280: possible fault – pressure out of range`. The same text is `error` on that sensor in `/status.json`, and `faults` lists every latched fault. The OLED adds a `SENSOR FAULT` page while any fault is latched. Prometheus exports only a fixed set of label values:
+
+```text
+pico_fan_sensor_fault{sensor="bmp280",location="external",reason="pressure_out_of_range"} 1
+pico_fan_sensor_fault_total{sensor="bmp280",location="external",reason="pressure_out_of_range"} 1
+```
+
+`sensor` is `bmp280`, `die`, `tach`, or `pressure`. `location` is `internal`, `external`, `die`, `delta`, or a fan id `1`–`4`. `reason` is one of `temp_out_of_range`, `pressure_out_of_range`, `temp_jump`, `pressure_jump`, `stuck`, `stale`, `read_failed`, `die_out_of_range`, `die_jump`, `rpm_high`, `rpm_at_zero_duty`, `pressure_delta`. The gauge is present only while that fault is latched. The counter increments once each time that reason latches, including when a latched fault changes reason. Free-text errors are not labels.
+
+A fault latches after `SENSOR_FAULT_SET_SAMPLES` bad samples (default 2) and clears after `SENSOR_FAULT_CLEAR_SAMPLES` good samples (default 3). One bad sample is still thrown away immediately, so it cannot move the fans before the badge appears. A step that stays at the new value is accepted again after the clear debounce. A one-sample spike is not.
+
+| Check | Default | Meaning |
+|-------|---------|---------|
+| `BMP280_TEMP_MIN_C` / `MAX` | −40 / 85 °C | BMP280 operating range |
+| `BMP280_TEMP_JUMP_C` | 10 °C | Max change between 1 s samples |
+| `BMP280_PRESS_MIN_PA` / `MAX` | 30000 / 110000 Pa | 300–1100 hPa |
+| `BMP280_PRESS_JUMP_PA` | 1000 Pa | 10 hPa per sample |
+| `BMP280_STUCK_SAMPLES` | 30 | Identical raw temperature and pressure |
+| `SENSOR_STALE_S` | 5 | Failed reads older than this are `stale` |
+| `DIE_TEMP_MIN_C` / `MAX` | −20 / 100 °C | Implausible RP2040 die reading |
+| `DIE_TEMP_JUMP_C` | 15 °C | Max die change between samples |
+| `TACH_RPM_MAX` | 10000 | Count above this is ignored, not smoothed in |
+| `TACH_ZERO_DUTY_RPM` | 1 | RPM at duty 0 at or above this is a tach fault |
+| `PRESSURE_DELTA_MAX_PA` | 2000 Pa | Larger \|internal − external\| does not trim the fans |
 
 ---
 
@@ -446,7 +477,9 @@ scrape_configs:
 | `pressure_delta_pa` | Internal Pa minus external Pa, or `null` |
 | `pressure_loop_enabled` | Config flag |
 | `pressure_loop_active` | True only on a sample that applied the trim |
-| `sensors.internal` / `sensors.external` | `enabled`, `ok`, `chip_id`, `temp_c`, `pressure_pa`, `error` |
+| `sensors.internal` / `sensors.external` | `enabled`, `ok`, `chip_id`, `temp_c`, `pressure_pa`, `error`, `fault`, `fault_reason` |
+| `faults` | Latched faults: `sensor`, `location`, `reason`, `label` |
+| `fault_counts` | How many times each reason has latched |
 | `oled` | `enabled`, `ok`, `error` |
 | `fans[].role` | `intake` or `exhaust` |
 
@@ -466,8 +499,10 @@ Prometheus additions (temperature in Celsius, pressure in pascals):
 | `pico_fan_temp_source_info` | `source="internal"` or `"die"`. 1 on the active source |
 | `pico_fan_intake` | `fan`. 1 intake, 0 exhaust |
 | `pico_fan_oled_up` | 1 when the OLED is enabled and the last update succeeded |
+| `pico_fan_sensor_fault` | `sensor`, `location`, `reason`. 1 while that fault is latched. Labels are the fixed set above |
+| `pico_fan_sensor_fault_total` | Same labels. Increments when that reason latches |
 
-The OLED, when enabled and present, rotates four pages every `OLED_PAGE_S` (default 3 s): link, temperature source, control temperature, and pressure delta with the loop word (`on`, `idle`, or `off`); the four fans (RPM and duty); internal BMP280; external BMP280. Updates happen on the 1 s sample, not on the 10 ms poll.
+The OLED, when enabled and present, rotates four pages every `OLED_PAGE_S` (default 3 s): link, temperature source, control temperature, and pressure delta with the loop word (`on`, `idle`, or `off`); the four fans (RPM and duty); internal BMP280; external BMP280. A fifth `SENSOR FAULT` page is added while any sensor fault is latched. Updates happen on the 1 s sample, not on the 10 ms poll.
 
 Examples:
 
@@ -483,7 +518,7 @@ curl -u pico:change-me http://PICO_IP/metrics
 
 The control page's `fetch` calls send `Content-Type: application/json` and surface a failure on the page when the response is not OK. Basic Auth is not attached to cross-site browser requests, and a form post cannot satisfy the JSON content type, which is what blocks the old cross-site control request.
 
-**Overrides:** successful control POSTs write `overrides.json` on the Pico. Reboot restores them. Fail-safe (Ctrl+C) forces 100% now but does **not** rewrite the file.
+**Overrides:** successful control POSTs write `overrides.json` on the Pico by renaming a temp file into place and keeping the previous file as `overrides.json.bak`. A corrupt primary file loads the backup. A file that still cannot be parsed is ignored and the fans stay on the curve. Reboot restores a valid file. Fail-safe (Ctrl+C) forces 100% now but does **not** rewrite the file. Invalid config values are logged at boot and replaced with the defaults in `settings.py`; they do not stop fan control.
 
 **Secrets:** do not commit real Wi-Fi or HTTP passwords to a public remote.
 

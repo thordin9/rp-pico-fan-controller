@@ -108,3 +108,25 @@ PRESSURE_LOOP_ENABLED = True
 PRESSURE_TARGET_PA = 5.0
 PRESSURE_LOOP_GAIN = 0.0005
 PRESSURE_LOOP_TRIM_MAX = 0.05
+
+# Sensor sanity checks. A sample outside these limits does not drive the
+# fan curve or the pressure loop. The fault badge latches after
+# SENSOR_FAULT_SET_SAMPLES bad samples and clears after
+# SENSOR_FAULT_CLEAR_SAMPLES good ones.
+# BMP280 operating range from the datasheet: -40..85 °C, 300..1100 hPa.
+BMP280_TEMP_MIN_C = -40.0
+BMP280_TEMP_MAX_C = 85.0
+BMP280_TEMP_JUMP_C = 10.0          # max change between 1 s samples
+BMP280_PRESS_MIN_PA = 30000.0      # 300 hPa
+BMP280_PRESS_MAX_PA = 110000.0     # 1100 hPa
+BMP280_PRESS_JUMP_PA = 1000.0      # 10 hPa per sample
+BMP280_STUCK_SAMPLES = 30          # identical raw temp+pressure
+SENSOR_FAULT_SET_SAMPLES = 2
+SENSOR_FAULT_CLEAR_SAMPLES = 3
+SENSOR_STALE_S = 5
+DIE_TEMP_MIN_C = -20.0
+DIE_TEMP_MAX_C = 100.0
+DIE_TEMP_JUMP_C = 15.0
+TACH_RPM_MAX = 10000
+TACH_ZERO_DUTY_RPM = 1             # RPM at duty 0 at or above this is a fault
+PRESSURE_DELTA_MAX_PA = 2000.0     # |internal - external| above this is ignored

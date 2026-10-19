@@ -104,13 +104,15 @@ Status keys: `control_c`, `temp_source`, `pressure_delta_pa` (null if unknown), 
 
 Gauges: `pico_fan_bmp280_up`, `pico_fan_bmp280_temperature_celsius`, `pico_fan_bmp280_pressure_pascals` (label `location`), `pico_fan_pressure_delta_pascals`, `pico_fan_pressure_loop_enabled`, `pico_fan_pressure_loop_active`, `pico_fan_control_temp_celsius`, `pico_fan_temp_source_info`, `pico_fan_intake`, `pico_fan_oled_up`. Temperature and pressure samples are omitted when the sensor is not ok.
 
+Sensor faults: BMP280 temperature (−40..85 °C, or a jump), pressure (300..1100 hPa, or a jump), identical raw samples, stale or failed reads, die temperature, tach RPM above the plausible max or RPM at duty 0, and |internal − external| pressure. A rejected sample does not drive the curve or the pressure loop. The badge latches and clears with debounce. `faults` and `fault_reason` are in the status JSON. Prometheus uses `pico_fan_sensor_fault` and `pico_fan_sensor_fault_total` with a closed `sensor` / `location` / `reason` set. The OLED adds a fault page only while a fault is latched. Thresholds live in `config.py`.
+
 ## Main loop
 
 1. `prepare_fans` (spin-up, overrides, die curve) before any network wait.
 2. Start the radio, then arm the watchdog (8 s, max 8388 ms).
 3. Open I2C only if something is enabled. Feed around BMP280 reset and around OLED init.
 4. Every loop pass: feed the watchdog, poll Wi-Fi and HTTP, blink the LED. Sleep 10 ms until 1 s has elapsed.
-5. On the 1 s edge: `sample_peripherals` feeds, reads both BMP280s, ticks fans, updates one OLED page, feeds again. Exceptions are contained.
+5. On the 1 s edge: `sample_peripherals` feeds, reads both BMP280s, drops implausible samples, ticks fans, updates one OLED page, collects garbage, and feeds again. Exceptions in Wi-Fi, HTTP, the LED, logging, or a sample are contained. Ctrl+C and an uncaught error still force every fan duty to 100%.
 
 ## Out of scope
 

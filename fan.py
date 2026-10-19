@@ -1,6 +1,9 @@
 """Per-fan PWM / tach / thermal control helpers and FanController."""
 
+import os
 import time
+
+import faults
 
 FAN_COUNT = 4
 PWM_PINS = (15, 16, 17, 18)
@@ -18,6 +21,8 @@ SPINUP_STEP_S = 0.2
 RPM_PULSES_PER_REV = 2
 RPM_EMA_ALPHA = 0.35
 RPM_MAX_PLAUSIBLE = 10_000
+# The IRQ counter stops here so a noisy pin cannot grow without bound.
+TACH_COUNT_CAP = 4000
 
 # Latest 1 s sample below this RPM, while duty >= STALL_DUTY_MIN, raises stall.
 # Default 1 means "RPM reads 0" (pulses_to_rpm is an int).
@@ -62,11 +67,18 @@ _TICKS_HALF = 0x20000000
 
 
 def clamp_duty(fraction):
+    """Clamp to [0, 1]. A non-number or NaN becomes full speed."""
+    try:
+        fraction = float(fraction)
+    except (TypeError, ValueError):
+        return 1.0
+    if not faults.is_finite(fraction):
+        return 1.0
     if fraction < 0.0:
         return 0.0
     if fraction > 1.0:
         return 1.0
-    return float(fraction)
+    return fraction
 
 
 def validate_duty(value):
@@ -103,12 +115,22 @@ def led_is_on(duty_max, elapsed_ms, half_period_ms=LED_BLINK_HALF_MS, solid_duty
     High duty holds the LED on. Below that it blinks. ``elapsed_ms`` is any
     monotonic millisecond counter; call this every loop iteration.
     """
-    if duty_max >= solid_duty:
+    try:
+        if float(duty_max) >= solid_duty:
+            return True
+    except (TypeError, ValueError):
         return True
     period = int(half_period_ms)
     if period <= 0:
         return True
-    return ((int(elapsed_ms) // period) & 1) == 0
+    try:
+        elapsed_ms = int(elapsed_ms)
+    except (TypeError, ValueError):
+        return True
+    # A backwards tick difference is the start of the on half-period.
+    if elapsed_ms < 0:
+        elapsed_ms = 0
+    return ((elapsed_ms // period) & 1) == 0
 
 
 def adc_raw_to_temp_c(raw):
@@ -155,16 +177,24 @@ def note_tach_pulse(counts, last_us, seen, index, now_us, min_interval_us):
     else:
         seen[index] = 1
     last_us[index] = now_us
+    if counts[index] >= TACH_COUNT_CAP:
+        return False
     counts[index] += 1
     return True
 
 
 def temp_to_duty(temp_c):
+    """Map temperature to duty. A non-finite value is full speed."""
+    if not faults.is_finite(temp_c):
+        return 1.0
+    temp_c = float(temp_c)
     if temp_c <= MIN_TEMP_C:
         return MIN_SPEED
     if temp_c >= MAX_TEMP_C:
         return 1.0
     span = MAX_TEMP_C - MIN_TEMP_C
+    if span <= 0:
+        return 1.0
     return MIN_SPEED + (1.0 - MIN_SPEED) * ((temp_c - MIN_TEMP_C) / span)
 
 
@@ -189,12 +219,11 @@ def select_control_temp(die_c, internal_c, internal_ok):
     A missing sample, a failed read, or a disabled sensor falls back to the
     RP2040 die temperature.
     """
-    if internal_ok and internal_c is not None:
-        try:
-            return float(internal_c), "internal"
-        except (TypeError, ValueError):
-            pass
-    return die_c, "die"
+    if internal_ok and faults.is_finite(internal_c):
+        return float(internal_c), "internal"
+    if not faults.is_finite(die_c):
+        return float(MAX_TEMP_C), "die"
+    return float(die_c), "die"
 
 
 def lift_exhaust_idle(duty):
@@ -220,6 +249,13 @@ def pressure_trim(delta_pa, target_pa, gain, trim_max):
     accumulate. ``trim_max`` limits how far the loop may pull away from the
     intake/exhaust ratio.
     """
+    if (
+        not faults.is_finite(delta_pa)
+        or not faults.is_finite(target_pa)
+        or not faults.is_finite(gain)
+        or not faults.is_finite(trim_max)
+    ):
+        return 0.0
     trim = float(gain) * (float(delta_pa) - float(target_pa))
     limit = abs(float(trim_max))
     if trim > limit:
@@ -271,6 +307,8 @@ def blank_sensor_status():
         "temp_c": None,
         "pressure_pa": None,
         "error": "",
+        "fault": False,
+        "fault_reason": "",
     }
 
 
@@ -287,6 +325,32 @@ def pulses_to_rpm(pulses, elapsed_s):
     if rpm > RPM_MAX_PLAUSIBLE:
         return RPM_MAX_PLAUSIBLE
     return int(rpm)
+
+
+def assess_rpm(pulses, elapsed_s, duty, rpm_max, zero_duty_rpm):
+    """Return ``(rpm, reason)`` for one tach sample.
+
+    ``rpm`` is None when the count is above ``rpm_max``; the caller keeps
+    the previous RPM. ``reason`` is empty when the sample may be trusted.
+    """
+    if elapsed_s is None or elapsed_s <= 0 or pulses is None or pulses < 0:
+        return 0, ""
+    try:
+        rpm = (float(pulses) / RPM_PULSES_PER_REV) * (60.0 / float(elapsed_s))
+    except (TypeError, ValueError, ZeroDivisionError):
+        return 0, ""
+    if not faults.is_finite(rpm) or rpm < 0:
+        return 0, ""
+    if rpm > float(rpm_max):
+        return None, faults.REASON_RPM_HIGH
+    rpm_i = int(rpm)
+    try:
+        duty_f = float(duty)
+    except (TypeError, ValueError):
+        duty_f = 0.0
+    if duty_f <= 0.0 and rpm_i >= int(zero_duty_rpm):
+        return rpm_i, faults.REASON_RPM_ZERO
+    return rpm_i, ""
 
 
 def overrides_to_json(fans):
@@ -324,12 +388,53 @@ def parse_overrides_json(text):
         duty = item.get("duty")
         if mode not in ("auto", "manual"):
             return None
-        try:
-            duty_f = clamp_duty(float(duty))
-        except (TypeError, ValueError):
+        if isinstance(duty, bool) or not isinstance(duty, (int, float)):
             return None
-        out.append({"mode": mode, "duty": duty_f})
+        if not faults.is_finite(duty):
+            return None
+        out.append({"mode": mode, "duty": clamp_duty(float(duty))})
     return out
+
+
+def _read_text(path):
+    try:
+        with open(path, "r") as handle:
+            return handle.read()
+    except Exception:
+        return None
+
+
+def atomic_write_text(path, text):
+    """Write ``text`` via a temp file, keeping the previous file as ``.bak``.
+
+    A power loss during the write leaves either the old file or the new one.
+    """
+    tmp = path + ".tmp"
+    bak = path + ".bak"
+    try:
+        with open(tmp, "w") as handle:
+            handle.write(text)
+            try:
+                handle.flush()
+            except Exception:
+                pass
+        try:
+            os.remove(bak)
+        except OSError:
+            pass
+        try:
+            os.rename(path, bak)
+        except OSError:
+            pass
+        os.rename(tmp, path)
+        return True
+    except Exception as exc:
+        print("fan: save_overrides failed:", exc)
+        try:
+            os.remove(tmp)
+        except Exception:
+            pass
+        return False
 
 
 class FanController:
@@ -346,6 +451,7 @@ class FanController:
         pressure_target_pa=None,
         pressure_loop_gain=None,
         pressure_trim_max=None,
+        fault_cfg=None,
     ):
         self.hw = hw
         self.overrides_path = overrides_path
@@ -385,6 +491,7 @@ class FanController:
             else float(pressure_trim_max)
         )
         self.pressure_loop_active = False
+        self.fault_monitor = faults.FaultMonitor(fault_cfg, die_safe_c=MAX_TEMP_C)
         self.die_c = 0.0
         self.control_c = 0.0
         self.temp_source = "die"
@@ -443,27 +550,25 @@ class FanController:
         if self.overrides_path == ":memory:":
             self._mem_overrides = text
             return True
-        try:
-            with open(self.overrides_path, "w") as f:
-                f.write(text)
-            return True
-        except Exception as exc:
-            print("fan: save_overrides failed:", exc)
-            return False
+        return atomic_write_text(self.overrides_path, text)
 
     def load_overrides(self):
-        try:
-            if self.overrides_path == ":memory:":
-                text = self._mem_overrides
-                if not text:
-                    return False
-            else:
-                with open(self.overrides_path, "r") as f:
-                    text = f.read()
-        except Exception:
-            return False
+        if self.overrides_path == ":memory:":
+            text = self._mem_overrides
+            if not text:
+                return False
+            backup = None
+        else:
+            text = _read_text(self.overrides_path)
+            if text is None:
+                return False
+            backup = self.overrides_path + ".bak"
         parsed = parse_overrides_json(text)
+        if parsed is None and backup is not None:
+            print("fan: overrides.json unusable, trying backup")
+            parsed = parse_overrides_json(_read_text(backup) or "")
         if parsed is None:
+            print("fan: overrides unusable, keeping current duties")
             return False
         for i, item in enumerate(parsed):
             self.modes[i] = item["mode"]
@@ -491,8 +596,8 @@ class FanController:
             self.pressure_trim_max,
         )
 
-    def note_sensors(self, snap):
-        """Copy a SensorHub snapshot onto the status published by the page."""
+    def note_sensors(self, snap, now_ms=None):
+        """Copy a SensorHub snapshot, dropping values that fail the sanity checks."""
         if not isinstance(snap, dict):
             return
         sensors = snap.get("sensors") or {}
@@ -500,16 +605,18 @@ class FanController:
             item = sensors.get(name)
             if not isinstance(item, dict):
                 continue
-            self.sensor_state[name] = {
-                "enabled": bool(item.get("enabled")),
-                "ok": bool(item.get("ok")),
-                "chip_id": item.get("chip_id"),
-                "temp_c": item.get("temp_c"),
-                "pressure_pa": item.get("pressure_pa"),
-                "error": item.get("error") or "",
-            }
-        if "pressure_delta_pa" in snap:
-            self.pressure_delta_pa = snap.get("pressure_delta_pa")
+            self.sensor_state[name] = self.fault_monitor.observe_bmp280(
+                name, now_ms, item, item.get("raw")
+            )
+        internal = self.sensor_state["internal"]
+        external = self.sensor_state["external"]
+        delta = None
+        if internal.get("ok") and external.get("ok"):
+            try:
+                delta = float(internal["pressure_pa"]) - float(external["pressure_pa"])
+            except (TypeError, ValueError):
+                delta = None
+        self.pressure_delta_pa = self.fault_monitor.observe_delta(delta)
 
     def note_oled(self, state):
         if not isinstance(state, dict):
@@ -546,19 +653,37 @@ class FanController:
                 self.duties[i] = duty
                 if self.hw is not None:
                     self.hw.set_duty(i, duty)
-            raw_rpm = pulses_to_rpm(pulse_counts[i], elapsed_s)
-            self.rpms[i] = (RPM_EMA_ALPHA * raw_rpm) + (
-                (1.0 - RPM_EMA_ALPHA) * self.rpms[i]
+            try:
+                pulses = pulse_counts[i]
+            except Exception:
+                pulses = 0
+            raw_rpm, rpm_reason = assess_rpm(
+                pulses,
+                elapsed_s,
+                self.duties[i],
+                self.fault_monitor.tach_rpm_max,
+                self.fault_monitor.tach_zero_rpm,
             )
-            # A commanded fan that produced no tach edges this sample is stalled.
-            # Duty 0 is "off", not a stall. elapsed <= 0 is not a real sample.
-            if elapsed_s <= 0:
-                self.stalls[i] = False
-            else:
-                self.stalls[i] = (
-                    self.duties[i] >= self.stall_duty_min
-                    and raw_rpm < self.stall_rpm_below
+            if rpm_reason == faults.REASON_RPM_HIGH or raw_rpm is None:
+                # Do not smooth an impossible count into the displayed RPM,
+                # and do not let it clear or raise stall.
+                self.fault_monitor.observe_tach(
+                    i + 1, rpm_reason or faults.REASON_RPM_HIGH
                 )
+            else:
+                self.fault_monitor.observe_tach(i + 1, rpm_reason)
+                self.rpms[i] = (RPM_EMA_ALPHA * raw_rpm) + (
+                    (1.0 - RPM_EMA_ALPHA) * self.rpms[i]
+                )
+                # A commanded fan that produced no tach edges this sample is stalled.
+                # Duty 0 is "off", not a stall. elapsed <= 0 is not a real sample.
+                if elapsed_s <= 0:
+                    self.stalls[i] = False
+                else:
+                    self.stalls[i] = (
+                        self.duties[i] >= self.stall_duty_min
+                        and raw_rpm < self.stall_rpm_below
+                    )
 
     def status_dict(self):
         return {
@@ -577,6 +702,8 @@ class FanController:
                 "external": dict(self.sensor_state["external"]),
             },
             "oled": dict(self.oled_state),
+            "faults": self.fault_monitor.active(),
+            "fault_counts": self.fault_monitor.count_rows(),
             "fans": [
                 {
                     "id": i + 1,
@@ -615,9 +742,13 @@ class FanController:
         self.spinup(feed=feed)
         if self.hw is not None:
             try:
-                self.die_c = self.hw.read_die_temp_c()
+                die = self.hw.read_die_temp_c()
+                read_ok = True
             except Exception as exc:
                 print("temp: read failed:", exc)
+                die = None
+                read_ok = False
+            self.die_c = self.fault_monitor.observe_die(None, die, read_ok)
         # Sensors are not up yet. The die reading is the curve input until
         # a later sample reports a healthy internal BMP280.
         self.control_c = self.die_c
@@ -650,12 +781,16 @@ class FanController:
         internal_c=None,
         internal_ok=False,
         pressure_delta_pa=None,
+        now_ms=None,
     ):
         try:
             die = self.hw.read_die_temp_c()
+            read_ok = True
         except Exception as exc:
             print("temp: die read failed:", exc)
-            die = self.die_c
+            die = None
+            read_ok = False
+        die = self.fault_monitor.observe_die(now_ms, die, read_ok)
         try:
             counts = self.hw.take_pulse_counts()
         except Exception as exc:
@@ -671,8 +806,13 @@ class FanController:
         )
 
     def failsafe(self):
+        for i in range(FAN_COUNT):
+            self.duties[i] = 1.0
         if self.hw is not None:
-            self.hw.failsafe()
+            try:
+                self.hw.failsafe()
+            except Exception as exc:
+                print("fan: failsafe failed:", exc)
 
 
 def _make_tach_handler(counts, last_us, seen, index, min_interval_us):
@@ -680,7 +820,7 @@ def _make_tach_handler(counts, last_us, seen, index, min_interval_us):
     # helper. The Python helper's 30-bit wrap math can allocate a long int,
     # which is not safe in a pin IRQ. Keep this body in step with
     # note_tach_pulse: first edge counts, later edges need min_interval_us.
-    def _handler(_pin):
+    def _handler(_pin, _cap=TACH_COUNT_CAP):
         now = time.ticks_us()
         if seen[index]:
             if time.ticks_diff(now, last_us[index]) < min_interval_us:
@@ -688,7 +828,8 @@ def _make_tach_handler(counts, last_us, seen, index, min_interval_us):
         else:
             seen[index] = 1
         last_us[index] = now
-        counts[index] += 1
+        if counts[index] < _cap:
+            counts[index] += 1
 
     return _handler
 

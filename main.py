@@ -9,6 +9,7 @@ Fans are brought up before any network wait. Wi-Fi association is polled
 from the main loop so a dropout reconnects without blocking fan control.
 """
 
+import gc
 import time
 import machine
 
@@ -66,22 +67,21 @@ def clamp_wdt_timeout_ms(timeout_ms, hw_max=WDT_HW_MAX_MS):
     return timeout
 
 
-def _wifi_wanted():
-    if not _cfg("WIFI_ENABLED", True):
+def _wifi_wanted(enabled, ssid):
+    if not enabled:
         return False
-    ssid = _cfg("WIFI_SSID", "") or ""
+    ssid = ssid or ""
     if not ssid or ssid == "YOUR_SSID":
         return False
     return True
 
 
-def _start_wdt():
+def _start_wdt(enabled=True, requested=8000):
     global _wdt
-    if not _cfg("WDT_ENABLED", True):
+    if not enabled:
         print("WDT: disabled in config")
         _wdt = None
         return None
-    requested = _cfg("WDT_TIMEOUT_MS", 8000)
     timeout = clamp_wdt_timeout_ms(requested)
     if timeout is None:
         print("WDT: invalid timeout {!r}; watchdog not started".format(requested))
@@ -118,15 +118,14 @@ def _host_for_url(ip, port):
     return "{}:{}".format(ip, port)
 
 
-def _start_http(ctrl, auth):
+def _start_http(ctrl, auth, port, metrics_require_auth):
     http = HttpServer(
         ctrl,
         metrics,
         auth=auth,
-        metrics_require_auth=bool(_cfg("METRICS_REQUIRE_AUTH", True)),
+        metrics_require_auth=bool(metrics_require_auth),
     )
-    port = int(_cfg("HTTP_PORT", 80))
-    if not http.start(port):
+    if not http.start(int(port)):
         return None
     host = _host_for_url(ctrl.ip, port)
     print("Control page: http://{}/".format(host))
@@ -161,17 +160,20 @@ def sample_peripherals(ctrl, sensors, display, elapsed_s, now_ms, feed=None):
             print("bmp280: read failed:", exc)
             snap = None
         if isinstance(snap, dict):
-            ctrl.note_sensors(snap)
-            internal = (snap.get("sensors") or {}).get("internal") or {}
-            internal_ok = bool(internal.get("ok")) and internal.get("temp_c") is not None
+            ctrl.note_sensors(snap, now_ms)
+            internal = ctrl.sensor_state.get("internal") or {}
+            internal_ok = (
+                bool(internal.get("ok")) and internal.get("temp_c") is not None
+            )
             internal_c = internal.get("temp_c") if internal_ok else None
-            delta = snap.get("pressure_delta_pa")
+            delta = ctrl.pressure_delta_pa
     try:
         ctrl.tick(
             elapsed_s,
             internal_c=internal_c,
             internal_ok=internal_ok,
             pressure_delta_pa=delta,
+            now_ms=now_ms,
         )
     except Exception as exc:
         print("fan: tick failed:", exc)
@@ -180,6 +182,10 @@ def sample_peripherals(ctrl, sensors, display, elapsed_s, now_ms, feed=None):
             ctrl.note_oled(display.update(ctrl.status_dict(), now_ms))
         except Exception as exc:
             print("oled: update failed:", exc)
+    try:
+        gc.collect()
+    except Exception as exc:
+        print("gc:", exc)
     _feed()
 
 
@@ -232,8 +238,9 @@ def main():
     for problem in problems:
         print("config:", problem)
     ctrl = fan.FanController(
-        stall_duty_min=_cfg("STALL_DUTY_MIN", fan.STALL_DUTY_MIN),
-        stall_rpm_below=_cfg("STALL_RPM_BELOW", fan.STALL_RPM_BELOW),
+        stall_duty_min=loaded["stall_duty_min"],
+        stall_rpm_below=loaded["stall_rpm_below"],
+        fault_cfg=loaded,
         roles=loaded["fan_roles"],
         exhaust_ratio=loaded["exhaust_ratio"],
         exhaust_offset=loaded["exhaust_offset"],
@@ -278,7 +285,7 @@ def main():
         )
     )
 
-    auth = resolve_auth(_cfg("HTTP_USER", ""), _cfg("HTTP_PASSWORD", ""))
+    auth = resolve_auth(loaded["http_user"], loaded["http_password"])
     if auth is None:
         print(AUTH_DISABLED_WARNING)
     else:
@@ -286,12 +293,12 @@ def main():
 
     mon = wifi.WifiMonitor(
         ctrl,
-        ssid=_cfg("WIFI_SSID", "") or "",
-        password=_cfg("WIFI_PASSWORD", "") or "",
-        timeout_s=_cfg("WIFI_TIMEOUT_S", 20),
-        retry_s=_cfg("WIFI_RETRY_S", 10),
+        ssid=loaded["wifi_ssid"],
+        password=loaded["wifi_password"],
+        timeout_s=loaded["wifi_timeout_s"],
+        retry_s=loaded["wifi_retry_s"],
     )
-    if not _wifi_wanted():
+    if not _wifi_wanted(loaded["wifi_enabled"], loaded["wifi_ssid"]):
         mon.mark_disabled("disabled")
         print("Wi-Fi skipped: disabled or placeholder SSID in config.py")
     else:
@@ -312,7 +319,7 @@ def main():
     # Arm only after radio init. wlan.active(True) can block for seconds and
     # must not trip the watchdog. Association itself is polled below, and the
     # loop feeds on every pass, including the fast 10 ms sleep.
-    _start_wdt()
+    _start_wdt(loaded["wdt_enabled"], loaded["wdt_timeout_ms"])
     _feed_wdt()
     sensor_hub, oled = _open_peripherals(loaded, _feed_wdt)
     _feed_wdt()
@@ -341,8 +348,17 @@ def main():
 
         if time.ticks_diff(now, last_wifi) >= WIFI_POLL_MS:
             last_wifi = now
-            mon.poll(now)
-        if http is not None and not http.is_listening():
+            try:
+                mon.poll(now)
+            except Exception as exc:
+                print("wifi:", exc)
+        try:
+            listening = http is not None and http.is_listening()
+        except Exception as exc:
+            print("http:", exc)
+            listening = False
+            http = None
+        if http is not None and not listening:
             http = None
         if http is None and ctrl.wifi == "connected":
             if (
@@ -350,17 +366,39 @@ def main():
                 or time.ticks_diff(now, last_http_start) >= HTTP_RESTART_MS
             ):
                 last_http_start = now
-                http = _start_http(ctrl, auth)
+                try:
+                    http = _start_http(
+                        ctrl,
+                        auth,
+                        loaded["http_port"],
+                        loaded["metrics_require_auth"],
+                    )
+                except Exception as exc:
+                    print("http:", exc)
+                    http = None
 
         if http is not None and time.ticks_diff(now, last_http) >= HTTP_POLL_MS:
             last_http = now
-            http.poll(now)
+            try:
+                http.poll(now)
+            except Exception as exc:
+                print("http:", exc)
+                try:
+                    http.close_listen()
+                except Exception:
+                    pass
+                http = None
 
         # Blink from the fast path. The sample branch runs only once a second,
         # which is too slow to show a 500 ms phase.
         elapsed_boot = time.ticks_diff(now, boot_ms)
-        duty_max = max(ctrl.duties)
-        led.value(1 if fan.led_is_on(duty_max, elapsed_boot) else 0)
+        if elapsed_boot < 0:
+            elapsed_boot = 0
+        try:
+            duty_max = max(ctrl.duties)
+            led.value(1 if fan.led_is_on(duty_max, elapsed_boot) else 0)
+        except Exception as exc:
+            print("led:", exc)
 
         elapsed_ms = time.ticks_diff(now, last)
         if elapsed_ms < int(fan.SAMPLE_PERIOD_S * 1000):
@@ -372,7 +410,13 @@ def main():
         uptime_ms += elapsed_ms
         # BMP280 and OLED run on this 1 s edge only. The fast path above
         # keeps feeding the watchdog and polling HTTP while they talk.
-        sample_peripherals(ctrl, sensor_hub, oled, elapsed_s, now, feed=_feed_wdt)
+        try:
+            sample_peripherals(
+                ctrl, sensor_hub, oled, elapsed_s, now, feed=_feed_wdt
+            )
+        except Exception as exc:
+            print("sample:", exc)
+            _feed_wdt()
         ctrl.uptime_s = uptime_ms // 1000
 
         parts = " ".join(
@@ -393,17 +437,20 @@ def main():
             loop_s = "idle"
         else:
             loop_s = "off"
-        print(
-            "die={:5.1f}°C ctl={:5.1f}°C src={}{} loop={}  {}  wifi={}".format(
-                ctrl.die_c,
-                ctrl.control_c,
-                ctrl.temp_source,
-                delta_s,
-                loop_s,
-                parts,
-                ctrl.wifi,
+        try:
+            print(
+                "die={:5.1f}°C ctl={:5.1f}°C src={}{} loop={}  {}  wifi={}".format(
+                    ctrl.die_c,
+                    ctrl.control_c,
+                    ctrl.temp_source,
+                    delta_s,
+                    loop_s,
+                    parts,
+                    ctrl.wifi,
+                )
             )
-        )
+        except Exception as exc:
+            print("log:", exc)
 
 
 if __name__ == "__main__":
