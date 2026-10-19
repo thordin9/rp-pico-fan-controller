@@ -2,8 +2,9 @@
 Raspberry Pi Pico W — 4-fan thermal PWM controller + web control + Prometheus.
 
 Per-fan PWM (GP15–18) with independent tach (GP14–11). Auto fans follow the
-die-temp curve; manual overrides persist in overrides.json. Optional Wi-Fi
-serves / (control UI), /status.json, and /metrics.
+die-temp curve, or the internal BMP280 when that sensor is healthy. Manual
+overrides persist in overrides.json. Optional Wi-Fi serves / (control UI),
+/status.json, and /metrics.
 
 Fans are brought up before any network wait. Wi-Fi association is polled
 from the main loop so a dropout reconnects without blocking fan control.

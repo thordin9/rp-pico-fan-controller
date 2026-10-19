@@ -63,7 +63,31 @@ The OLED PH2.0 (VCC, GND, SDA, SCL) is plugged inside the case onto the same I2C
 
 A zip-tie cleat crosses each exit, one tie per cable, so the two I2C runs cannot be pulled into each other's opening. On the sensor housings the cleat is just inside the 4-wire slot.
 
-Fan power and tach rules are unchanged from the controller README: fans take 12 V from their own supply, never from the Pico; 5 V into VSYS only; one common ground.
+```mermaid
+flowchart LR
+  subgraph box [Pico case]
+    pico["Pico W USB toward the USB opening"]
+    oled["OLED 0x3C PH2.0 stays inside"]
+  end
+  subgraph inside [INT housing inside the fan box]
+    bmpI["BMP280 0x76"]
+  end
+  subgraph outside [EXT housing outside lid up]
+    bmpE["BMP280 0x76"]
+  end
+  fans["12 V fans through the two FAN slots"]
+  supply["5 V and 12 V through PWR"]
+  pico -->|"INT: I2C0 GP4 pin 6 SDA, GP5 pin 7 SCL, 3V3 pin 36, GND"| bmpI
+  pico -->|"same four I2C0 points"| oled
+  pico -->|"EXT: I2C1 GP6 pin 9 SDA, GP7 pin 10 SCL, 3V3 pin 36, GND"| bmpE
+  pico -->|"FAN: PWM GP15-GP18, tach GP14 GP13 GP12 GP11"| fans
+  supply -->|"VSYS pin 39 and common GND"| pico
+  supply -->|"12 V to fan pin 2, GND to fan pin 1"| fans
+```
+
+Physical pin numbers use the Pico pinout with USB at the top: pin 1 is GP0, pin 40 is VBUS. Fan tach pull-ups are 10 kΩ to Pico 3V3 pin 36, one resistor per tach wire.
+
+Fan power and tach rules match the controller [wiring guide](../docs/wiring.md): fans take 12 V from their own supply, never from the Pico; 5 V into VSYS pin 39 only; one common ground. Do not feed 5 V into 3V3 pin 36.
 
 ## Where to put the sensors
 

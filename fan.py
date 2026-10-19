@@ -1,4 +1,8 @@
-"""Per-fan PWM / tach / thermal control helpers and FanController."""
+"""Per-fan PWM / tach / thermal control helpers and FanController.
+
+Implausible BMP280, die, tach, and pressure-delta samples are rejected in
+``faults.py`` before they can change a duty.
+"""
 
 import os
 import time
