@@ -127,6 +127,25 @@ def format_metrics(status, http_counts):
             )
         )
 
+    gauge(
+        "pico_fan_pressure_loop_enabled",
+        "1 if the exhaust pressure trim is enabled in config",
+    )
+    lines.append(
+        "pico_fan_pressure_loop_enabled {}".format(
+            1 if status.get("pressure_loop_enabled") else 0
+        )
+    )
+    gauge(
+        "pico_fan_pressure_loop_active",
+        "1 if the pressure trim is applied this sample",
+    )
+    lines.append(
+        "pico_fan_pressure_loop_active {}".format(
+            1 if status.get("pressure_loop_active") else 0
+        )
+    )
+
     if any("role" in f for f in status.get("fans") or []):
         gauge("pico_fan_intake", "1 if the fan is an intake fan, 0 if it is exhaust")
         for f in status["fans"]:

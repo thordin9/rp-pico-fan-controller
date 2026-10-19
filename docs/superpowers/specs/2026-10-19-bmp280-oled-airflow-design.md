@@ -20,11 +20,11 @@ A missing or failed peripheral must not stop fan control or the watchdog.
 |-------|--------|
 | Sensor | BMP280 only. Chip id register `0xD0` must be `0x58`. Any other id is a permanent error |
 | Humidity | Not implemented. No field, metric, page, or driver path |
-| Buses | Default I2C0 GP4/GP5, 100 kHz, 50 ms timeout. Spare I2C1 GP6/GP7 when a module cannot leave `0x76` |
-| Addresses | Internal `0x76` (SDO to GND), external `0x77` (SDO to 3V3). OLED `0x3C` |
+| Buses | Internal BMP280 and OLED on I2C0 GP4/GP5. External BMP280 on I2C1 GP6/GP7. 100 kHz, 50 ms timeout. Sharing I2C0 at `0x77` remains a config option |
+| Addresses | Both BMP280s `0x76` (SDO hardwired to GND). OLED `0x3C` |
 | Temperature source | Internal BMP280 while its latest read is ok; otherwise RP2040 die, including after a runtime failure. Boot uses the die sensor |
-| Airflow | Fans 1–2 intake, 3–4 exhaust. Exhaust duty = clamp(curve × 0.85 + 0). Manual ignores the rule |
-| Pressure loop | Off. Optional exhaust trim `gain * (internal_Pa - external_Pa - 5 Pa)` with gain 0.002 |
+| Airflow | Fans 1–2 intake, 3–4 exhaust. Static exhaust = clamp(curve × 0.85 + 0), then any result in (0, 18%) is lifted to 18%. Duty 0 stays off. Manual ignores the rule |
+| Pressure loop | On. Each 1 s sample adds `gain * (delta_pa - 5 Pa)` to the static exhaust duty, gain 0.0005, trim capped at ±5% duty. Not an integrator. If either sensor fails, the trim is skipped and the static ratio remains |
 | OLED | Four pages, 3 s, updated only on the 1 s sample. 512-byte framebuffer |
 | Failure policy | Log on change, keep the previous fan duty path (die fallback), feed the watchdog around the sample |
 | Compensation | Bosch BST-BMP280-DS001 section 3.11.3 integer formula, not the double-precision appendix |
@@ -37,11 +37,11 @@ Fan pins are unchanged: PWM GP15–GP18, tach GP14/GP13/GP12/GP11. Peripherals m
 |----------|---------|
 | I2C0 SDA / SCL | GP4 / GP5 |
 | I2C1 SDA / SCL | GP6 / GP7 |
-| Internal BMP280 | I2C0, `0x76` |
-| External BMP280 | I2C0, `0x77` |
+| Internal BMP280 | I2C0, `0x76`, SDO to GND |
+| External BMP280 | I2C1, `0x76`, SDO to GND |
 | OLED | I2C0, `0x3C`, 128×32 |
 
-Power the BMP280 from Pico 3V3 (1.8–3.3 V). Tie CSB to 3V3 so the chip stays in I2C. Do not float SDO. The HandsOn GY-BMP280 guide says that module is hardwired to `0x76`; the second-bus settings exist for that case. The Waveshare OLED is I2C-only (VCC, GND, DIN, CLK). Its wiki lists 3.3/5 V on the power pin; this design uses 3V3 so a shared rail cannot feed 5 V into a BMP280.
+Power each BMP280 from Pico 3V3 (1.8–3.3 V). Tie CSB to 3V3 so the chip stays in I2C. Do not float SDO, and do not short a hardwired SDO to 3V3. The HandsOn GY-BMP280 guide says that module is hardwired to `0x76`, so the two modules use two controllers. A free SDO tied to 3V3 (`0x77` on I2C0) is the shared-bus alternative. The Waveshare OLED is I2C-only (VCC, GND, DIN, CLK) and shares I2C0. Its wiki lists 3.3/5 V on the power pin; this design uses 3V3 so a shared rail cannot feed 5 V into a BMP280.
 
 ## Architecture
 
@@ -75,22 +75,34 @@ The published integer example (adc_T 519888, adc_P 415148, the usual dig_* set) 
 
 `select_control_temp` returns `(internal_c, "internal")` only when the internal sensor is ok. Otherwise `(die_c, "die")`.
 
-Intake auto duty is the curve duty (18% floor at ≤35 °C, 100% at ≥55 °C). Exhaust auto duty is `clamp(base * ratio + offset)`. With the pressure loop on and a delta available, only the exhaust duty then adds `gain * (delta_pa - target_pa)`.
+Intake auto duty is the curve duty (18% floor at ≤35 °C, 100% at ≥55 °C). Exhaust auto duty is `clamp(base * ratio + offset)`, then `lift_exhaust_idle`: any result in `(0, MIN_SPEED)` becomes `MIN_SPEED`. Duty 0 stays off and does not alarm.
 
-Idle exhaust is 0.18 × 0.85 = 0.153, which is above `STALL_DUTY_MIN` 0.15, so a fan that does not spin there alarms. Exhaust is not raised back to the 18% floor.
+The raw idle product 0.18 × 0.85 = 0.153 sits 0.3 points above `STALL_DUTY_MIN` 0.15. A fan that does not spin there raises a stall that looks like a fault. Holding idle exhaust at 18% matches the intake floor, so a stopped exhaust fan is the same kind of stall as a stopped intake fan. Above the floor the ratio still biases exhaust (50% → 42.5%, 100% → 85%).
+
+### Pressure loop
+
+On by default (`PRESSURE_LOOP_ENABLED`). While `pressure_delta_pa` is a number, exhaust duty adds:
+
+```text
+trim = clamp(0.0005 * (delta_pa - 5), -0.05, 0.05)
+```
+
+The trim is recomputed from the static duty every 1 s sample. It is not summed across samples, so it cannot wind up. A 10 Pa error is 0.5% duty. A 100 Pa error, larger than a plausible BMP280-to-BMP280 offset for this use, is already at the ±5% cap, and the next sample starts again from the ratio. After the trim, `lift_exhaust_idle` runs again so the loop cannot park exhaust in the 0–18% band except at duty 0.
+
+`pressure_loop_active` is true only when the loop is enabled and this sample had a delta. A missing or failed sensor sets the delta to null, clears the active flag, and leaves the static ratio. Status, the web page (`active` / `idle` / `off`), `pico_fan_pressure_loop_enabled`, and `pico_fan_pressure_loop_active` expose that. Intake fans are not trimmed. Manual fans ignore the rule.
 
 ### OLED
 
-Page 0: IP (or Wi-Fi state), `src internal` / `src die`, control temperature, pressure delta.  
+Page 0: IP (or Wi-Fi state), `src internal` / `src die`, control temperature, pressure delta plus `on` / `idle` / `off`.  
 Page 1: `1I   820  18%` with `m` for manual and `!` for stall.  
 Page 2: internal BMP280. Page 3: external BMP280.  
 16 columns × 4 rows. `show()` prefers `I2C.writevto`; otherwise it writes a preallocated `0x40` frame.
 
 ### Status and metrics
 
-Status keys: `control_c`, `temp_source`, `pressure_delta_pa` (null if unknown), `sensors.internal` / `sensors.external` (`enabled`, `ok`, `chip_id`, `temp_c`, `pressure_pa`, `error`), `oled`, `fans[].role`.
+Status keys: `control_c`, `temp_source`, `pressure_delta_pa` (null if unknown), `pressure_loop_enabled`, `pressure_loop_active`, `sensors.internal` / `sensors.external` (`enabled`, `ok`, `chip_id`, `temp_c`, `pressure_pa`, `error`), `oled`, `fans[].role`.
 
-Gauges: `pico_fan_bmp280_up`, `pico_fan_bmp280_temperature_celsius`, `pico_fan_bmp280_pressure_pascals` (label `location`), `pico_fan_pressure_delta_pascals`, `pico_fan_control_temp_celsius`, `pico_fan_temp_source_info`, `pico_fan_intake`, `pico_fan_oled_up`. Temperature and pressure samples are omitted when the sensor is not ok.
+Gauges: `pico_fan_bmp280_up`, `pico_fan_bmp280_temperature_celsius`, `pico_fan_bmp280_pressure_pascals` (label `location`), `pico_fan_pressure_delta_pascals`, `pico_fan_pressure_loop_enabled`, `pico_fan_pressure_loop_active`, `pico_fan_control_temp_celsius`, `pico_fan_temp_source_info`, `pico_fan_intake`, `pico_fan_oled_up`. Temperature and pressure samples are omitted when the sensor is not ok.
 
 ## Main loop
 
@@ -103,7 +115,7 @@ Gauges: `pico_fan_bmp280_up`, `pico_fan_bmp280_temperature_celsius`, `pico_fan_b
 ## Out of scope
 
 - Any sensor other than the BMP280, and any humidity reading
-- Closed-loop control beyond the optional exhaust trim
+- Anything beyond the capped proportional exhaust trim (no integrator, no intake trim)
 - TLS, or changing Basic Auth
 - Moving fan PWM or tach pins
 
@@ -112,4 +124,5 @@ Gauges: `pico_fan_bmp280_up`, `pico_fan_bmp280_temperature_celsius`, `pico_fan_b
 1. Shipped config leaves the BMP280s and the OLED off, and existing fan tests still pass.
 2. Chip id other than `0x58` is reported and not retried. A missing sensor does not stop the other sensor or the fans.
 3. Host tests lock the Bosch integer compensation values, role duty, die fallback, OLED pages, status JSON, and metrics with peripherals absent and present.
-4. README wiring matches the Waveshare four-pin module and the BMP280 CSB/SDO rules, including the second-bus alternative for a hardwired `0x76`.
+4. README wiring matches the default: both BMP280s at `0x76`, internal plus OLED on I2C0, external on I2C1, with the `0x77` shared bus documented as the alternative.
+5. Host tests cover the two-bus default, the shared-bus alternative, loop-on defaults, trim clamping, and fallback to the static ratio when the delta is missing.

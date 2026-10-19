@@ -48,19 +48,21 @@ WIFI_ENABLED = True
 # Everything below is off until you set the matching *_ENABLED flag. A part
 # that is enabled but missing is logged and skipped; the fans keep running.
 #
-# Default bus is I2C0 on GP4 (SDA) and GP5 (SCL). Those pins are free:
-# PWM is GP15–18, tach is GP14/13/12/11, and the Pico W LED is not a user GPIO.
-# I2C1 on GP6/GP7 is the spare bus for a BMP280 whose address cannot move.
+# Default buses, on pins that are free of PWM (GP15–18), tach (GP14–11),
+# and the Pico W wireless pins:
+#   I2C0 GP4 SDA / GP5 SCL: internal BMP280 (0x76) and the OLED (0x3C)
+#   I2C1 GP6 SDA / GP7 SCL: external BMP280 (0x76)
+# Both BMP280 modules are assumed hardwired to 0x76 (SDO tied to GND).
+# To share one bus instead, strap the external SDO to 3V3 for address 0x77
+# and use the commented block below.
 #
 # BMP280 (HandsOn GY-BMP280 and the Bosch part):
 #   VCC -> Pico 3V3 (the module is 1.8–3.3 V; do not use 5 V)
 #   GND -> Pico GND
-#   SDA -> SDA, SCL -> SCL, each with a pull-up to 3V3 (modules usually have one)
+#   SDA -> that bus's SDA, SCL -> that bus's SCL, pull-ups to 3V3
 #   CSB -> 3V3 so the chip stays in I2C mode (a low CSB at power-up locks SPI)
-#   SDO -> GND gives address 0x76; SDO -> 3V3 gives 0x77. Do not leave SDO open.
-# The HandsOn guide says that module's address is hardwired to 0x76. If the
-# SDO pin is tied to GND on the PCB and cannot be lifted, put the external
-# sensor on I2C1 at 0x76 (see the commented example).
+#   SDO -> GND gives address 0x76. Do not leave SDO open. Do not short a
+#   hardwired SDO to 3V3.
 
 I2C_FREQ = 100000
 I2C_TIMEOUT_US = 50000
@@ -72,15 +74,15 @@ INTERNAL_BMP280_SDA = 4
 INTERNAL_BMP280_SCL = 5
 
 EXTERNAL_BMP280_ENABLED = False
-EXTERNAL_BMP280_ADDR = 0x77
-EXTERNAL_BMP280_I2C_ID = 0
-EXTERNAL_BMP280_SDA = 4
-EXTERNAL_BMP280_SCL = 5
-# Second-bus alternative when both modules are stuck at 0x76:
-# EXTERNAL_BMP280_ADDR = 0x76
-# EXTERNAL_BMP280_I2C_ID = 1
-# EXTERNAL_BMP280_SDA = 6
-# EXTERNAL_BMP280_SCL = 7
+EXTERNAL_BMP280_ADDR = 0x76
+EXTERNAL_BMP280_I2C_ID = 1
+EXTERNAL_BMP280_SDA = 6
+EXTERNAL_BMP280_SCL = 7
+# Shared-bus alternative, only if this module's SDO can be tied to 3V3:
+# EXTERNAL_BMP280_ADDR = 0x77
+# EXTERNAL_BMP280_I2C_ID = 0
+# EXTERNAL_BMP280_SDA = 4
+# EXTERNAL_BMP280_SCL = 5
 
 # Waveshare 0.91 inch SSD1306, 128x32, I2C address 0x3C. Shares I2C0.
 OLED_ENABLED = False
@@ -98,8 +100,11 @@ FAN_ROLES = ("intake", "intake", "exhaust", "exhaust")
 AIRFLOW_EXHAUST_RATIO = 0.85
 AIRFLOW_EXHAUST_OFFSET = 0.0
 
-# Optional trim from (internal Pa - external Pa). Off by default.
-# exhaust duty += gain * (delta_pa - target_pa), then clamped to 0..1.
-PRESSURE_LOOP_ENABLED = False
+# Pressure trim from (internal Pa - external Pa). On by default.
+# Each 1 s sample adds gain * (delta_pa - target_pa) to the static exhaust
+# duty, capped at ±PRESSURE_LOOP_TRIM_MAX. It is not an integrator.
+# If either BMP280 is missing or failing, the trim is skipped.
+PRESSURE_LOOP_ENABLED = True
 PRESSURE_TARGET_PA = 5.0
-PRESSURE_LOOP_GAIN = 0.002
+PRESSURE_LOOP_GAIN = 0.0005
+PRESSURE_LOOP_TRIM_MAX = 0.05

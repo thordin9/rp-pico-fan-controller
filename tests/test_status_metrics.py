@@ -122,7 +122,31 @@ class TestMetricsCombinations(unittest.TestCase):
         )
         self.assertIn("pico_fan_pressure_delta_pascals 10.000", text)
         self.assertIn("pico_fan_oled_up 1", text)
+        self.assertIn("pico_fan_pressure_loop_enabled 0", text)
+        self.assertIn("pico_fan_pressure_loop_active 0", text)
         self.assertNotIn("humidity", text)
+
+    def test_pressure_loop_metrics(self):
+        idle = _status(
+            _sensor(True, False, error="init failed"),
+            _sensor(True, True, 22.0, 100000.0, 0x58),
+            None,
+        )
+        idle["pressure_loop_enabled"] = True
+        idle["pressure_loop_active"] = False
+        text = metrics.format_metrics(idle, {})
+        self.assertIn("pico_fan_pressure_loop_enabled 1", text)
+        self.assertIn("pico_fan_pressure_loop_active 0", text)
+        self.assertNotIn("pico_fan_pressure_delta_pascals", text)
+        active = _status(
+            _sensor(True, True, 28.0, 101330.0, 0x58),
+            _sensor(True, True, 22.0, 101320.0, 0x58),
+            10.0,
+        )
+        active["pressure_loop_enabled"] = True
+        active["pressure_loop_active"] = True
+        text = metrics.format_metrics(active, {})
+        self.assertIn("pico_fan_pressure_loop_active 1", text)
 
 
 class TestStatusPage(unittest.TestCase):
@@ -152,6 +176,8 @@ class TestStatusPage(unittest.TestCase):
         self.assertEqual(data["sensors"]["internal"]["pressure_pa"], 101325.0)
         self.assertEqual(data["sensors"]["external"]["error"], "init failed")
         self.assertIsNone(data["pressure_delta_pa"])
+        self.assertTrue(data["pressure_loop_enabled"])
+        self.assertFalse(data["pressure_loop_active"])
         self.assertEqual(data["fans"][0]["role"], "intake")
         self.assertEqual(data["fans"][3]["role"], "exhaust")
         self.assertFalse(data["oled"]["ok"])
@@ -163,6 +189,8 @@ class TestStatusPage(unittest.TestCase):
         self.assertIn(b"External BMP280", page)
         self.assertIn(b"Temperature source", page)
         self.assertIn(b"Pressure delta", page)
+        self.assertIn(b"Pressure loop", page)
+        self.assertIn(b"idle", page)
         self.assertIn(b"intake", page)
         self.assertIn(b"init failed", page)
 
@@ -174,6 +202,8 @@ class TestStatusPage(unittest.TestCase):
         self.assertFalse(data["sensors"]["external"]["enabled"])
         self.assertEqual(data["temp_source"], "die")
         self.assertIsNone(data["pressure_delta_pa"])
+        self.assertTrue(data["pressure_loop_enabled"])
+        self.assertFalse(data["pressure_loop_active"])
         self.assertFalse(data["oled"]["enabled"])
 
 

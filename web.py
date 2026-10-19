@@ -252,6 +252,14 @@ def _fmt_num(value, spec):
         return "—"
 
 
+def _loop_label(status):
+    if status.get("pressure_loop_active"):
+        return "active"
+    if status.get("pressure_loop_enabled"):
+        return "idle"
+    return "off"
+
+
 def _sensor_label(item):
     if not item or not item.get("enabled"):
         return "disabled"
@@ -417,6 +425,7 @@ class HttpServer:
   <tr><td>External pressure</td><td class="num" id="epress">{}</td></tr>
   <tr><td>External BMP280</td><td class="num" id="estat">{}</td></tr>
   <tr><td>Pressure delta</td><td class="num" id="dp">{}</td></tr>
+  <tr><td>Pressure loop</td><td class="num" id="loop">{}</td></tr>
   <tr><td>OLED</td><td class="num" id="oled">{}</td></tr>
   <tr><td>Uptime</td><td class="num"><span id="up">{}</span> s</td></tr>
   <tr><td>Wi-Fi</td><td class="num" id="wifi">{}</td></tr>
@@ -476,6 +485,7 @@ function apply(s){{
   text('epress', num(ext.pressure_pa,0,' Pa'));
   text('estat', sensorLabel(ext));
   text('dp', num(s.pressure_delta_pa,0,' Pa'));
+  text('loop', s.pressure_loop_active?'active':(s.pressure_loop_enabled?'idle':'off'));
   var oled=s.oled||{{}};
   text('oled', !oled.enabled?'disabled':(oled.ok?'ok':(oled.error||'fail')));
   document.getElementById('up').textContent=s.uptime_s;
@@ -513,6 +523,7 @@ setInterval(poll,2000);
             _html_escape(_fmt_num(external.get("pressure_pa"), "{:.0f} Pa")),
             _html_escape(_sensor_label(external)),
             _html_escape(_fmt_num(d.get("pressure_delta_pa"), "{:.0f} Pa")),
+            _html_escape(_loop_label(d)),
             _html_escape(_sensor_label(oled) if oled.get("enabled") else "disabled"),
             int(d["uptime_s"]),
             _html_escape(d["wifi"]),

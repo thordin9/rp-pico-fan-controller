@@ -121,7 +121,14 @@ class TestSensorHub(unittest.TestCase):
 
         pool = sensors.BusPool(factory)
         hub = sensors.build_sensors(
-            self._settings(internal_enabled=True, external_enabled=True),
+            self._settings(
+                internal_enabled=True,
+                external_enabled=True,
+                external_addr=0x77,
+                external_i2c_id=0,
+                external_sda=4,
+                external_scl=5,
+            ),
             pool,
         )
         snap = hub.read()
@@ -134,7 +141,7 @@ class TestSensorHub(unittest.TestCase):
             (25767233 / 256.0) - (34657840 / 256.0),
         )
 
-    def test_second_bus_when_both_addresses_are_0x76(self):
+    def test_default_two_buses_both_at_0x76(self):
         buses = {0: FakeI2C(), 1: FakeI2C()}
         plant_bmp280(buses[0], 0x76, adc_p=ADC_P)
         plant_bmp280(buses[1], 0x76, adc_p=ADC_P_HIGH)
@@ -146,14 +153,7 @@ class TestSensorHub(unittest.TestCase):
 
         pool = sensors.BusPool(factory)
         hub = sensors.build_sensors(
-            self._settings(
-                internal_enabled=True,
-                external_enabled=True,
-                external_addr=0x76,
-                external_i2c_id=1,
-                external_sda=6,
-                external_scl=7,
-            ),
+            self._settings(internal_enabled=True, external_enabled=True),
             pool,
         )
         snap = hub.read()
@@ -163,9 +163,13 @@ class TestSensorHub(unittest.TestCase):
         self.assertIsNotNone(snap["pressure_delta_pa"])
 
     def test_missing_internal_does_not_drop_external(self):
-        i2c = FakeI2C()
-        plant_bmp280(i2c, 0x77)
-        pool = sensors.BusPool(lambda *_args: i2c)
+        buses = {0: FakeI2C(), 1: FakeI2C()}
+        plant_bmp280(buses[1], 0x76)
+
+        def factory(i2c_id, _sda, _scl):
+            return buses[i2c_id]
+
+        pool = sensors.BusPool(factory)
         hub = sensors.build_sensors(
             self._settings(internal_enabled=True, external_enabled=True),
             pool,

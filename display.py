@@ -89,13 +89,22 @@ def _temp_text(temp_c):
         return "T--"
 
 
-def _delta_text(delta):
+def _loop_word(status):
+    if status.get("pressure_loop_active"):
+        return "on"
+    if status.get("pressure_loop_enabled"):
+        return "idle"
+    return "off"
+
+
+def _delta_text(delta, status):
+    word = _loop_word(status)
     if delta is None:
-        return "dP --"
+        return "dP -- " + word
     try:
-        return "dP {:+.0f}Pa".format(float(delta))
+        return "dP {:+.0f}Pa {}".format(float(delta), word)
     except (TypeError, ValueError):
-        return "dP --"
+        return "dP -- " + word
 
 
 def _sensor_page(title, item):
@@ -164,7 +173,7 @@ def build_pages(status):
         fit(line_ip),
         fit(line_src),
         fit(_temp_text(status.get("control_c"))),
-        fit(_delta_text(status.get("pressure_delta_pa"))),
+        fit(_delta_text(status.get("pressure_delta_pa"), status)),
     )
     fans = list(status.get("fans") or [])
     fan_lines = []

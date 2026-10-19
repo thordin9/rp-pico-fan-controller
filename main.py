@@ -240,6 +240,7 @@ def main():
         pressure_loop=loaded["pressure_loop_enabled"],
         pressure_target_pa=loaded["pressure_target_pa"],
         pressure_loop_gain=loaded["pressure_loop_gain"],
+        pressure_trim_max=loaded["pressure_trim_max"],
     )
     ctrl.init_hardware()
     _ctrl = ctrl
@@ -386,9 +387,21 @@ def main():
         )
         delta = ctrl.pressure_delta_pa
         delta_s = "  dP=--" if delta is None else "  dP={:+.0f}Pa".format(delta)
+        if ctrl.pressure_loop_active:
+            loop_s = "on"
+        elif ctrl.pressure_loop:
+            loop_s = "idle"
+        else:
+            loop_s = "off"
         print(
-            "die={:5.1f}°C ctl={:5.1f}°C src={}{}  {}  wifi={}".format(
-                ctrl.die_c, ctrl.control_c, ctrl.temp_source, delta_s, parts, ctrl.wifi
+            "die={:5.1f}°C ctl={:5.1f}°C src={}{} loop={}  {}  wifi={}".format(
+                ctrl.die_c,
+                ctrl.control_c,
+                ctrl.temp_source,
+                delta_s,
+                loop_s,
+                parts,
+                ctrl.wifi,
             )
         )
 

@@ -41,13 +41,19 @@ LED_BLINK_HALF_MS = 500
 OVERRIDES_PATH = "overrides.json"
 
 # Auto mode positive pressure. Fans 1 and 2 intake, 3 and 4 exhaust.
-# Exhaust duty = clamp(intake_duty * ratio + offset). Ratio 0.85 keeps the
-# idle exhaust (0.18 * 0.85 = 0.153) above the default stall threshold.
+# Exhaust duty starts at clamp(intake_duty * ratio + offset). Any result in
+# (0, MIN_SPEED) is lifted to MIN_SPEED: 0.18 * 0.85 is 0.153, which sits on
+# the 15% stall threshold and false-alarms a fan that will not spin there.
+# Duty 0 stays off. Above the floor the 0.85 ratio still slows the exhaust.
 DEFAULT_ROLES = ("intake", "intake", "exhaust", "exhaust")
 DEFAULT_EXHAUST_RATIO = 0.85
 DEFAULT_EXHAUST_OFFSET = 0.0
+# Closed each 1 s sample from the static duty. Not an integrator.
+# 0.0005 duty per pascal is 0.5% duty for a 10 Pa error. The trim is capped
+# at ±5% so a sensor offset cannot walk the fans away from the ratio.
 DEFAULT_PRESSURE_TARGET_PA = 5.0
-DEFAULT_PRESSURE_LOOP_GAIN = 0.002
+DEFAULT_PRESSURE_LOOP_GAIN = 0.0005
+DEFAULT_PRESSURE_TRIM_MAX = 0.05
 
 # MicroPython ticks_us wraps every 2**30 microseconds.
 _TICKS_MASK = 0x3FFFFFFF
@@ -191,6 +197,38 @@ def select_control_temp(die_c, internal_c, internal_ok):
     return die_c, "die"
 
 
+def lift_exhaust_idle(duty):
+    """Pull a non-zero exhaust duty up to the quiet floor.
+
+    The stall alarm starts at ``STALL_DUTY_MIN`` (15%). The curve will not
+    hold an intake fan below ``MIN_SPEED`` (18%). A command in between, such
+    as the raw 15.3% from ratio 0.85, is high enough to alarm and low enough
+    that a healthy fan may not spin. Duty 0 is left alone: that is fan off,
+    and it does not alarm.
+    """
+    if duty <= 0.0:
+        return 0.0
+    if duty < MIN_SPEED:
+        return MIN_SPEED
+    return duty
+
+
+def pressure_trim(delta_pa, target_pa, gain, trim_max):
+    """Return the exhaust duty added for one pressure sample, capped.
+
+    The value is recomputed from the static duty every sample. It does not
+    accumulate. ``trim_max`` limits how far the loop may pull away from the
+    intake/exhaust ratio.
+    """
+    trim = float(gain) * (float(delta_pa) - float(target_pa))
+    limit = abs(float(trim_max))
+    if trim > limit:
+        return limit
+    if trim < -limit:
+        return -limit
+    return trim
+
+
 def auto_duty_for_role(
     base_duty,
     role,
@@ -200,20 +238,25 @@ def auto_duty_for_role(
     target_pa=0.0,
     gain=0.0,
     loop_enabled=False,
+    trim_max=DEFAULT_PRESSURE_TRIM_MAX,
 ):
     """Duty for one auto fan.
 
     Intake fans take the thermal-curve duty, which already includes the
-    minimum-speed floor. Exhaust fans take ``base * ratio + offset``, then
-    an optional pressure trim. Manual mode does not call this.
+    minimum-speed floor. Exhaust fans take ``base * ratio + offset``, lifted
+    out of the stall band, then an optional pressure trim. With the loop on
+    but ``delta_pa`` missing, the trim is skipped and the static ratio
+    remains. Manual mode does not call this.
     """
     if role == "exhaust":
         duty = clamp_duty(float(base_duty) * float(ratio) + float(offset))
+        duty = lift_exhaust_idle(duty)
         if loop_enabled and delta_pa is not None:
             try:
                 duty = clamp_duty(
-                    duty + float(gain) * (float(delta_pa) - float(target_pa))
+                    duty + pressure_trim(delta_pa, target_pa, gain, trim_max)
                 )
+                duty = lift_exhaust_idle(duty)
             except (TypeError, ValueError):
                 pass
         return duty
@@ -299,9 +342,10 @@ class FanController:
         roles=None,
         exhaust_ratio=None,
         exhaust_offset=None,
-        pressure_loop=False,
+        pressure_loop=True,
         pressure_target_pa=None,
         pressure_loop_gain=None,
+        pressure_trim_max=None,
     ):
         self.hw = hw
         self.overrides_path = overrides_path
@@ -335,6 +379,12 @@ class FanController:
             if pressure_loop_gain is None
             else float(pressure_loop_gain)
         )
+        self.pressure_trim_max = (
+            DEFAULT_PRESSURE_TRIM_MAX
+            if pressure_trim_max is None
+            else float(pressure_trim_max)
+        )
+        self.pressure_loop_active = False
         self.die_c = 0.0
         self.control_c = 0.0
         self.temp_source = "die"
@@ -438,6 +488,7 @@ class FanController:
             self.pressure_target_pa,
             self.pressure_loop_gain,
             self.pressure_loop,
+            self.pressure_trim_max,
         )
 
     def note_sensors(self, snap):
@@ -479,8 +530,12 @@ class FanController:
         pressure_delta_pa=None,
     ):
         self.die_c = die_c
-        # Apply this sample's delta before duties so the optional trim sees it.
+        # Apply this sample's delta before duties so the trim sees it.
+        # None means a sensor is missing or failed: skip the trim.
         self.pressure_delta_pa = pressure_delta_pa
+        self.pressure_loop_active = bool(
+            self.pressure_loop and pressure_delta_pa is not None
+        )
         self.control_c, self.temp_source = select_control_temp(
             die_c, internal_c, internal_ok
         )
@@ -511,6 +566,8 @@ class FanController:
             "control_c": self.control_c,
             "temp_source": self.temp_source,
             "pressure_delta_pa": self.pressure_delta_pa,
+            "pressure_loop_enabled": bool(self.pressure_loop),
+            "pressure_loop_active": bool(self.pressure_loop_active),
             "uptime_s": int(self.uptime_s),
             "wifi": self.wifi,
             "ip": self.ip,
