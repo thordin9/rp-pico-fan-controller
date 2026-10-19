@@ -1,0 +1,214 @@
+"""Load and check optional-peripheral settings.
+
+Invalid pins, addresses, or airflow values are reported and replaced with
+a safe setting. Fan PWM and tach pins are never given to a peripheral.
+Nothing here touches hardware.
+"""
+
+import fan
+
+# Pico W: GP23 wireless power, GP24 wireless status, GP25 wireless SPI.
+# GP29 is ADC3 / VSYS. User I2C pins stay off that set and off the fan pins.
+_GPIO_OK = set(list(range(0, 23)) + [26, 27, 28])
+
+DEFAULTS = {
+    "i2c_freq": 100000,
+    "i2c_timeout_us": 50000,
+    "internal_enabled": False,
+    "internal_addr": 0x76,
+    "internal_i2c_id": 0,
+    "internal_sda": 4,
+    "internal_scl": 5,
+    "external_enabled": False,
+    "external_addr": 0x77,
+    "external_i2c_id": 0,
+    "external_sda": 4,
+    "external_scl": 5,
+    "oled_enabled": False,
+    "oled_addr": 0x3C,
+    "oled_i2c_id": 0,
+    "oled_sda": 4,
+    "oled_scl": 5,
+    "oled_width": 128,
+    "oled_height": 32,
+    "oled_page_s": 3,
+    "fan_roles": fan.DEFAULT_ROLES,
+    "exhaust_ratio": fan.DEFAULT_EXHAUST_RATIO,
+    "exhaust_offset": fan.DEFAULT_EXHAUST_OFFSET,
+    "pressure_loop_enabled": False,
+    "pressure_target_pa": fan.DEFAULT_PRESSURE_TARGET_PA,
+    "pressure_loop_gain": fan.DEFAULT_PRESSURE_LOOP_GAIN,
+}
+
+# config.py names, in the order a shared bus is claimed.
+_DEVICES = (
+    ("internal", "INTERNAL_BMP280"),
+    ("external", "EXTERNAL_BMP280"),
+    ("oled", "OLED"),
+)
+
+_ATTRS = {
+    "i2c_freq": "I2C_FREQ",
+    "i2c_timeout_us": "I2C_TIMEOUT_US",
+    "internal_enabled": "INTERNAL_BMP280_ENABLED",
+    "internal_addr": "INTERNAL_BMP280_ADDR",
+    "internal_i2c_id": "INTERNAL_BMP280_I2C_ID",
+    "internal_sda": "INTERNAL_BMP280_SDA",
+    "internal_scl": "INTERNAL_BMP280_SCL",
+    "external_enabled": "EXTERNAL_BMP280_ENABLED",
+    "external_addr": "EXTERNAL_BMP280_ADDR",
+    "external_i2c_id": "EXTERNAL_BMP280_I2C_ID",
+    "external_sda": "EXTERNAL_BMP280_SDA",
+    "external_scl": "EXTERNAL_BMP280_SCL",
+    "oled_enabled": "OLED_ENABLED",
+    "oled_addr": "OLED_ADDR",
+    "oled_i2c_id": "OLED_I2C_ID",
+    "oled_sda": "OLED_SDA",
+    "oled_scl": "OLED_SCL",
+    "oled_width": "OLED_WIDTH",
+    "oled_height": "OLED_HEIGHT",
+    "oled_page_s": "OLED_PAGE_S",
+    "fan_roles": "FAN_ROLES",
+    "exhaust_ratio": "AIRFLOW_EXHAUST_RATIO",
+    "exhaust_offset": "AIRFLOW_EXHAUST_OFFSET",
+    "pressure_loop_enabled": "PRESSURE_LOOP_ENABLED",
+    "pressure_target_pa": "PRESSURE_TARGET_PA",
+    "pressure_loop_gain": "PRESSURE_LOOP_GAIN",
+}
+
+
+def _is_int(value):
+    return isinstance(value, int) and not isinstance(value, bool)
+
+
+def _is_number(value):
+    return isinstance(value, (int, float)) and not isinstance(value, bool)
+
+
+def load_settings(module):
+    """Return ``(settings, errors)``.
+
+    ``settings`` is always safe to apply. ``errors`` lists what was wrong
+    in ``module``; those fields have already been replaced.
+    """
+    settings = dict(DEFAULTS)
+    settings["fan_roles"] = tuple(DEFAULTS["fan_roles"])
+    errors = []
+    if module is None:
+        return settings, errors
+
+    for key, attr in _ATTRS.items():
+        if hasattr(module, attr):
+            settings[key] = getattr(module, attr)
+
+    _check_number(settings, errors, "i2c_freq", 1000, 400000, True)
+    _check_number(settings, errors, "i2c_timeout_us", 1000, 500000, True)
+    _check_bool(settings, errors, "internal_enabled")
+    _check_bool(settings, errors, "external_enabled")
+    _check_bool(settings, errors, "oled_enabled")
+    _check_bool(settings, errors, "pressure_loop_enabled")
+
+    for prefix, label in _DEVICES:
+        _check_number(settings, errors, prefix + "_addr", 0x08, 0x77, True)
+        _check_number(settings, errors, prefix + "_i2c_id", 0, 1, True)
+        _check_number(settings, errors, prefix + "_sda", 0, 28, True)
+        _check_number(settings, errors, prefix + "_scl", 0, 28, True)
+
+    _check_number(settings, errors, "oled_width", 8, 128, True)
+    _check_number(settings, errors, "oled_height", 8, 64, True)
+    _check_number(settings, errors, "oled_page_s", 1, 60, True)
+    _check_number(settings, errors, "exhaust_ratio", 0.0, 2.0, False)
+    _check_number(settings, errors, "exhaust_offset", -1.0, 1.0, False)
+    _check_number(settings, errors, "pressure_target_pa", -10000.0, 10000.0, False)
+    _check_number(settings, errors, "pressure_loop_gain", -1.0, 1.0, False)
+
+    height = settings["oled_height"]
+    if _is_int(height) and height % 8 != 0:
+        errors.append("OLED_HEIGHT must be a multiple of 8")
+        settings["oled_height"] = DEFAULTS["oled_height"]
+
+    roles = fan.normalize_roles(settings.get("fan_roles"))
+    if roles is None:
+        errors.append("FAN_ROLES must be four of intake or exhaust")
+        settings["fan_roles"] = tuple(DEFAULTS["fan_roles"])
+    else:
+        settings["fan_roles"] = roles
+
+    _check_buses(settings, errors)
+    return settings, errors
+
+
+def _check_bool(settings, errors, key):
+    value = settings.get(key)
+    if isinstance(value, bool):
+        return
+    errors.append("{} must be True or False".format(_ATTRS[key]))
+    settings[key] = DEFAULTS[key]
+
+
+def _check_number(settings, errors, key, low, high, integer):
+    value = settings.get(key)
+    ok_type = _is_int(value) if integer else _is_number(value)
+    if ok_type and low <= float(value) <= high:
+        if integer:
+            settings[key] = int(value)
+        else:
+            settings[key] = float(value)
+        return
+    kind = "an integer" if integer else "a number"
+    errors.append(
+        "{} must be {} from {} to {}".format(_ATTRS[key], kind, low, high)
+    )
+    settings[key] = DEFAULTS[key]
+
+
+def _pin_problem(label, pin):
+    if pin in set(fan.PWM_PINS) | set(fan.TACH_PINS):
+        return "{} pin GP{} is used by a fan".format(label, pin)
+    if pin in (23, 24, 25, 29):
+        return "{} pin GP{} is reserved on Pico W".format(label, pin)
+    if pin not in _GPIO_OK:
+        return "{} pin GP{} is not a free GPIO".format(label, pin)
+    return None
+
+
+def _disable(settings, prefix):
+    settings[prefix + "_enabled"] = False
+
+
+def _check_buses(settings, errors):
+    claimed = {}  # i2c id -> (sda, scl, label)
+    used_addr = {}  # (i2c id, addr) -> label
+    for prefix, label in _DEVICES:
+        if not settings.get(prefix + "_enabled"):
+            continue
+        sda = settings[prefix + "_sda"]
+        scl = settings[prefix + "_scl"]
+        i2c_id = settings[prefix + "_i2c_id"]
+        addr = settings[prefix + "_addr"]
+        problem = None
+        if sda == scl:
+            problem = "{} SDA and SCL are both GP{}".format(label, sda)
+        else:
+            for pin in (sda, scl):
+                problem = _pin_problem(label, pin)
+                if problem:
+                    break
+        if problem is None and i2c_id in claimed:
+            prev_sda, prev_scl, prev_label = claimed[i2c_id]
+            if (prev_sda, prev_scl) != (sda, scl):
+                problem = (
+                    "{} pins GP{}/GP{} do not match I2C{} already used by {} on GP{}/GP{}"
+                ).format(label, sda, scl, i2c_id, prev_label, prev_sda, prev_scl)
+        if problem is None:
+            key = (i2c_id, addr)
+            if key in used_addr:
+                problem = "{} address 0x{:02X} on I2C{} conflicts with {}".format(
+                    label, addr, i2c_id, used_addr[key]
+                )
+        if problem is not None:
+            errors.append(problem)
+            _disable(settings, prefix)
+            continue
+        claimed.setdefault(i2c_id, (sda, scl, label))
+        used_addr[(i2c_id, addr)] = label

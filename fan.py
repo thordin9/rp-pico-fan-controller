@@ -40,6 +40,15 @@ LED_BLINK_HALF_MS = 500
 
 OVERRIDES_PATH = "overrides.json"
 
+# Auto mode positive pressure. Fans 1 and 2 intake, 3 and 4 exhaust.
+# Exhaust duty = clamp(intake_duty * ratio + offset). Ratio 0.85 keeps the
+# idle exhaust (0.18 * 0.85 = 0.153) above the default stall threshold.
+DEFAULT_ROLES = ("intake", "intake", "exhaust", "exhaust")
+DEFAULT_EXHAUST_RATIO = 0.85
+DEFAULT_EXHAUST_OFFSET = 0.0
+DEFAULT_PRESSURE_TARGET_PA = 5.0
+DEFAULT_PRESSURE_LOOP_GAIN = 0.002
+
 # MicroPython ticks_us wraps every 2**30 microseconds.
 _TICKS_MASK = 0x3FFFFFFF
 _TICKS_PERIOD = 0x40000000
@@ -153,6 +162,79 @@ def temp_to_duty(temp_c):
     return MIN_SPEED + (1.0 - MIN_SPEED) * ((temp_c - MIN_TEMP_C) / span)
 
 
+def normalize_roles(roles):
+    """Return a 4-tuple of intake/exhaust, or None when the value is unusable."""
+    if isinstance(roles, str) or not isinstance(roles, (list, tuple)):
+        return None
+    if len(roles) != FAN_COUNT:
+        return None
+    out = []
+    for role in roles:
+        if role not in ("intake", "exhaust"):
+            return None
+        out.append(role)
+    return tuple(out)
+
+
+def select_control_temp(die_c, internal_c, internal_ok):
+    """Return (temp_c, source). Source is ``internal`` or ``die``.
+
+    The internal BMP280 drives the curve only while its latest read is ok.
+    A missing sample, a failed read, or a disabled sensor falls back to the
+    RP2040 die temperature.
+    """
+    if internal_ok and internal_c is not None:
+        try:
+            return float(internal_c), "internal"
+        except (TypeError, ValueError):
+            pass
+    return die_c, "die"
+
+
+def auto_duty_for_role(
+    base_duty,
+    role,
+    ratio,
+    offset,
+    delta_pa=None,
+    target_pa=0.0,
+    gain=0.0,
+    loop_enabled=False,
+):
+    """Duty for one auto fan.
+
+    Intake fans take the thermal-curve duty, which already includes the
+    minimum-speed floor. Exhaust fans take ``base * ratio + offset``, then
+    an optional pressure trim. Manual mode does not call this.
+    """
+    if role == "exhaust":
+        duty = clamp_duty(float(base_duty) * float(ratio) + float(offset))
+        if loop_enabled and delta_pa is not None:
+            try:
+                duty = clamp_duty(
+                    duty + float(gain) * (float(delta_pa) - float(target_pa))
+                )
+            except (TypeError, ValueError):
+                pass
+        return duty
+    return clamp_duty(base_duty)
+
+
+def blank_sensor_status():
+    return {
+        "enabled": False,
+        "ok": False,
+        "chip_id": None,
+        "temp_c": None,
+        "pressure_pa": None,
+        "error": "",
+    }
+
+
+def blank_oled_status():
+    return {"enabled": False, "ok": False, "error": ""}
+
+
 def pulses_to_rpm(pulses, elapsed_s):
     if elapsed_s <= 0:
         return 0
@@ -214,6 +296,12 @@ class FanController:
         overrides_path=OVERRIDES_PATH,
         stall_duty_min=None,
         stall_rpm_below=None,
+        roles=None,
+        exhaust_ratio=None,
+        exhaust_offset=None,
+        pressure_loop=False,
+        pressure_target_pa=None,
+        pressure_loop_gain=None,
     ):
         self.hw = hw
         self.overrides_path = overrides_path
@@ -228,7 +316,34 @@ class FanController:
         self.stall_rpm_below = (
             STALL_RPM_BELOW if stall_rpm_below is None else float(stall_rpm_below)
         )
+        parsed_roles = normalize_roles(roles) if roles is not None else DEFAULT_ROLES
+        self.roles = list(parsed_roles or DEFAULT_ROLES)
+        self.exhaust_ratio = (
+            DEFAULT_EXHAUST_RATIO if exhaust_ratio is None else float(exhaust_ratio)
+        )
+        self.exhaust_offset = (
+            DEFAULT_EXHAUST_OFFSET if exhaust_offset is None else float(exhaust_offset)
+        )
+        self.pressure_loop = bool(pressure_loop)
+        self.pressure_target_pa = (
+            DEFAULT_PRESSURE_TARGET_PA
+            if pressure_target_pa is None
+            else float(pressure_target_pa)
+        )
+        self.pressure_loop_gain = (
+            DEFAULT_PRESSURE_LOOP_GAIN
+            if pressure_loop_gain is None
+            else float(pressure_loop_gain)
+        )
         self.die_c = 0.0
+        self.control_c = 0.0
+        self.temp_source = "die"
+        self.pressure_delta_pa = None
+        self.sensor_state = {
+            "internal": blank_sensor_status(),
+            "external": blank_sensor_status(),
+        }
+        self.oled_state = blank_oled_status()
         self.uptime_s = 0
         self.wifi = "offline"
         self.ip = ""
@@ -260,7 +375,7 @@ class FanController:
         else:
             self.modes[idx] = "auto"
             if self.hw is not None:
-                d = temp_to_duty(self.die_c)
+                d = self._auto_duty(idx, temp_to_duty(self.control_c))
                 self.duties[idx] = d
                 self.hw.set_duty(idx, d)
         if not self.save_overrides():
@@ -307,20 +422,75 @@ class FanController:
                 if self.hw is not None:
                     self.hw.set_duty(i, item["duty"])
             else:
-                d = temp_to_duty(self.die_c)
+                d = self._auto_duty(i, temp_to_duty(self.control_c))
                 self.duties[i] = d
                 if self.hw is not None:
                     self.hw.set_duty(i, d)
         return True
 
-    def tick_logic(self, die_c, pulse_counts, elapsed_s):
+    def _auto_duty(self, index, base_duty):
+        return auto_duty_for_role(
+            base_duty,
+            self.roles[index],
+            self.exhaust_ratio,
+            self.exhaust_offset,
+            self.pressure_delta_pa,
+            self.pressure_target_pa,
+            self.pressure_loop_gain,
+            self.pressure_loop,
+        )
+
+    def note_sensors(self, snap):
+        """Copy a SensorHub snapshot onto the status published by the page."""
+        if not isinstance(snap, dict):
+            return
+        sensors = snap.get("sensors") or {}
+        for name in ("internal", "external"):
+            item = sensors.get(name)
+            if not isinstance(item, dict):
+                continue
+            self.sensor_state[name] = {
+                "enabled": bool(item.get("enabled")),
+                "ok": bool(item.get("ok")),
+                "chip_id": item.get("chip_id"),
+                "temp_c": item.get("temp_c"),
+                "pressure_pa": item.get("pressure_pa"),
+                "error": item.get("error") or "",
+            }
+        if "pressure_delta_pa" in snap:
+            self.pressure_delta_pa = snap.get("pressure_delta_pa")
+
+    def note_oled(self, state):
+        if not isinstance(state, dict):
+            return
+        self.oled_state = {
+            "enabled": bool(state.get("enabled")),
+            "ok": bool(state.get("ok")),
+            "error": state.get("error") or "",
+        }
+
+    def tick_logic(
+        self,
+        die_c,
+        pulse_counts,
+        elapsed_s,
+        internal_c=None,
+        internal_ok=False,
+        pressure_delta_pa=None,
+    ):
         self.die_c = die_c
-        auto_duty = temp_to_duty(die_c)
+        # Apply this sample's delta before duties so the optional trim sees it.
+        self.pressure_delta_pa = pressure_delta_pa
+        self.control_c, self.temp_source = select_control_temp(
+            die_c, internal_c, internal_ok
+        )
+        base_duty = temp_to_duty(self.control_c)
         for i in range(FAN_COUNT):
             if self.modes[i] == "auto":
-                self.duties[i] = auto_duty
+                duty = self._auto_duty(i, base_duty)
+                self.duties[i] = duty
                 if self.hw is not None:
-                    self.hw.set_duty(i, auto_duty)
+                    self.hw.set_duty(i, duty)
             raw_rpm = pulses_to_rpm(pulse_counts[i], elapsed_s)
             self.rpms[i] = (RPM_EMA_ALPHA * raw_rpm) + (
                 (1.0 - RPM_EMA_ALPHA) * self.rpms[i]
@@ -338,10 +508,18 @@ class FanController:
     def status_dict(self):
         return {
             "die_c": self.die_c,
+            "control_c": self.control_c,
+            "temp_source": self.temp_source,
+            "pressure_delta_pa": self.pressure_delta_pa,
             "uptime_s": int(self.uptime_s),
             "wifi": self.wifi,
             "ip": self.ip,
             "ssid": self.ssid,
+            "sensors": {
+                "internal": dict(self.sensor_state["internal"]),
+                "external": dict(self.sensor_state["external"]),
+            },
+            "oled": dict(self.oled_state),
             "fans": [
                 {
                     "id": i + 1,
@@ -349,6 +527,7 @@ class FanController:
                     "duty": self.duties[i],
                     "rpm": self.rpms[i],
                     "stall": bool(self.stalls[i]),
+                    "role": self.roles[i],
                 }
                 for i in range(FAN_COUNT)
             ],
@@ -359,11 +538,12 @@ class FanController:
             self.hw = PicoHw()
 
     def apply_auto_duties(self):
-        """Push the thermal curve onto every auto fan. Manual fans stay put."""
-        duty = temp_to_duty(self.die_c)
+        """Push the curve, with intake/exhaust bias, onto every auto fan."""
+        base = temp_to_duty(self.control_c)
         for i in range(FAN_COUNT):
             if self.modes[i] != "auto":
                 continue
+            duty = self._auto_duty(i, base)
             self.duties[i] = duty
             if self.hw is not None:
                 self.hw.set_duty(i, duty)
@@ -381,6 +561,10 @@ class FanController:
                 self.die_c = self.hw.read_die_temp_c()
             except Exception as exc:
                 print("temp: read failed:", exc)
+        # Sensors are not up yet. The die reading is the curve input until
+        # a later sample reports a healthy internal BMP280.
+        self.control_c = self.die_c
+        self.temp_source = "die"
         loaded = self.load_overrides()
         if not loaded:
             self.apply_auto_duties()
@@ -403,10 +587,31 @@ class FanController:
                 feed()
         self.hw.take_pulse_counts()
 
-    def tick(self, elapsed_s):
-        die = self.hw.read_die_temp_c()
-        counts = self.hw.take_pulse_counts()
-        self.tick_logic(die, counts, elapsed_s)
+    def tick(
+        self,
+        elapsed_s,
+        internal_c=None,
+        internal_ok=False,
+        pressure_delta_pa=None,
+    ):
+        try:
+            die = self.hw.read_die_temp_c()
+        except Exception as exc:
+            print("temp: die read failed:", exc)
+            die = self.die_c
+        try:
+            counts = self.hw.take_pulse_counts()
+        except Exception as exc:
+            print("tach: read failed:", exc)
+            counts = [0] * FAN_COUNT
+        self.tick_logic(
+            die,
+            counts,
+            elapsed_s,
+            internal_c=internal_c,
+            internal_ok=internal_ok,
+            pressure_delta_pa=pressure_delta_pa,
+        )
 
     def failsafe(self):
         if self.hw is not None:

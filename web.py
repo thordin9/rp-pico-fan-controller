@@ -243,6 +243,26 @@ def request_progress(buf, max_header=MAX_HEADER_BYTES, max_body=MAX_BODY_BYTES):
     return "ready", (method, path, headers, body[:content_length])
 
 
+def _fmt_num(value, spec):
+    if value is None:
+        return "—"
+    try:
+        return spec.format(float(value))
+    except (TypeError, ValueError):
+        return "—"
+
+
+def _sensor_label(item):
+    if not item or not item.get("enabled"):
+        return "disabled"
+    if item.get("ok"):
+        return "ok"
+    err = item.get("error") or ""
+    if err in ("", "starting"):
+        return "starting"
+    return err
+
+
 def _html_escape(text):
     return (
         str(text)
@@ -333,9 +353,11 @@ class HttpServer:
             fid = f["id"]
             duty_pct = int(round(float(f["duty"]) * 100))
             stall = "STALL" if f.get("stall") else ""
+            role = f.get("role") or ""
             rows.append(
                 "<tr data-fan='{id}'>"
                 "<td>Fan {id}</td>"
+                "<td id='role{id}'>{role}</td>"
                 "<td class='num' id='rpm{id}'>{rpm:.0f}</td>"
                 "<td class='num'><span id='duty{id}'>{duty}</span>%</td>"
                 "<td id='mode{id}'>{mode}</td>"
@@ -352,8 +374,13 @@ class HttpServer:
                     duty=duty_pct,
                     mode=_html_escape(f["mode"]),
                     stall=_html_escape(stall),
+                    role=_html_escape(role),
                 )
             )
+        sensors = d.get("sensors") or {}
+        internal = sensors.get("internal") or {}
+        external = sensors.get("external") or {}
+        oled = d.get("oled") or {}
         return """<!DOCTYPE html>
 <html lang="en">
 <head>
@@ -375,18 +402,28 @@ class HttpServer:
 </head>
 <body>
 <h1>Pico W fan controller</h1>
-<p class="muted">Die ADC4 · per-fan PWM · poll 2s ·
+<p class="muted">Die or internal BMP280 · per-fan PWM · poll 2s ·
   <a href="/status.json">JSON</a> · <a href="/metrics">metrics</a></p>
 <p id="err"></p>
 <table>
   <tr><th>Metric</th><th class="num">Value</th></tr>
   <tr><td>Die temp</td><td class="num"><span id="die">{:.1f}</span> °C</td></tr>
+  <tr><td>Control temp</td><td class="num"><span id="ctl">{}</span></td></tr>
+  <tr><td>Temperature source</td><td class="num" id="tsrc">{}</td></tr>
+  <tr><td>Internal temp</td><td class="num" id="itemp">{}</td></tr>
+  <tr><td>Internal pressure</td><td class="num" id="ipress">{}</td></tr>
+  <tr><td>Internal BMP280</td><td class="num" id="istat">{}</td></tr>
+  <tr><td>External temp</td><td class="num" id="etemp">{}</td></tr>
+  <tr><td>External pressure</td><td class="num" id="epress">{}</td></tr>
+  <tr><td>External BMP280</td><td class="num" id="estat">{}</td></tr>
+  <tr><td>Pressure delta</td><td class="num" id="dp">{}</td></tr>
+  <tr><td>OLED</td><td class="num" id="oled">{}</td></tr>
   <tr><td>Uptime</td><td class="num"><span id="up">{}</span> s</td></tr>
   <tr><td>Wi-Fi</td><td class="num" id="wifi">{}</td></tr>
   <tr><td>IP</td><td class="num" id="ip">{}</td></tr>
 </table>
 <table style="margin-top:1rem">
-  <tr><th>Fan</th><th class="num">RPM</th><th class="num">Duty</th><th>Mode</th><th>Stall</th><th>Set</th><th>Control</th></tr>
+  <tr><th>Fan</th><th>Role</th><th class="num">RPM</th><th class="num">Duty</th><th>Mode</th><th>Stall</th><th>Set</th><th>Control</th></tr>
   {}
 </table>
 <script>
@@ -412,10 +449,35 @@ function setAuto(id){{
     .then(handle).then(apply)
     .catch(function(){{showErr('Control request failed');}});
 }}
+function text(id,v){{var el=document.getElementById(id); if(el) el.textContent=v;}}
+function num(v,digits,unit){{
+  if(v===null||v===undefined||v!==v) return '—';
+  return Number(v).toFixed(digits)+(unit||'');
+}}
+function sensorLabel(item){{
+  if(!item||!item.enabled) return 'disabled';
+  if(item.ok) return 'ok';
+  if(!item.error||item.error==='starting') return 'starting';
+  return item.error;
+}}
 function apply(s){{
   if(!s||!s.fans)return;
   showErr('');
   document.getElementById('die').textContent=s.die_c.toFixed(1);
+  text('ctl', num(s.control_c,1,' °C'));
+  text('tsrc', s.temp_source||'die');
+  var sensors=s.sensors||{{}};
+  var inn=sensors.internal||{{}};
+  var ext=sensors.external||{{}};
+  text('itemp', num(inn.temp_c,1,' °C'));
+  text('ipress', num(inn.pressure_pa,0,' Pa'));
+  text('istat', sensorLabel(inn));
+  text('etemp', num(ext.temp_c,1,' °C'));
+  text('epress', num(ext.pressure_pa,0,' Pa'));
+  text('estat', sensorLabel(ext));
+  text('dp', num(s.pressure_delta_pa,0,' Pa'));
+  var oled=s.oled||{{}};
+  text('oled', !oled.enabled?'disabled':(oled.ok?'ok':(oled.error||'fail')));
   document.getElementById('up').textContent=s.uptime_s;
   document.getElementById('wifi').textContent=s.wifi;
   document.getElementById('ip').textContent=s.ip||'—';
@@ -424,6 +486,8 @@ function apply(s){{
     var pct=Math.round(f.duty*100);
     document.getElementById('duty'+f.id).textContent=pct;
     document.getElementById('mode'+f.id).textContent=f.mode;
+    var role=document.getElementById('role'+f.id);
+    if(role) role.textContent=f.role||'';
     var st=document.getElementById('stall'+f.id);
     if(st) st.textContent=f.stall?'STALL':'';
     var sl=document.getElementById('sl'+f.id);
@@ -440,6 +504,16 @@ setInterval(poll,2000);
 </html>
 """.format(
             float(d["die_c"]),
+            _html_escape(_fmt_num(d.get("control_c"), "{:.1f} °C")),
+            _html_escape(d.get("temp_source") or "die"),
+            _html_escape(_fmt_num(internal.get("temp_c"), "{:.1f} °C")),
+            _html_escape(_fmt_num(internal.get("pressure_pa"), "{:.0f} Pa")),
+            _html_escape(_sensor_label(internal)),
+            _html_escape(_fmt_num(external.get("temp_c"), "{:.1f} °C")),
+            _html_escape(_fmt_num(external.get("pressure_pa"), "{:.0f} Pa")),
+            _html_escape(_sensor_label(external)),
+            _html_escape(_fmt_num(d.get("pressure_delta_pa"), "{:.0f} Pa")),
+            _html_escape(_sensor_label(oled) if oled.get("enabled") else "disabled"),
             int(d["uptime_s"]),
             _html_escape(d["wifi"]),
             _html_escape(d["ip"] or "—"),
