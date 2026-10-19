@@ -17,6 +17,7 @@ secrets.py
 .vscode/
 *.swp
 *~
+*.FCBak
 
 # MicroPython / firmware artifacts
 *.uf2
