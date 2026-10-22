@@ -13,7 +13,7 @@ Sources are in [`scad/`](scad/). OpenSCAD meshes are in [`stl/`](stl/), previews
 | Print | STL | Qty | Notes |
 | --- | --- | --- | --- |
 | Pico case base | [`stl/pico_case_base.stl`](stl/pico_case_base.stl) | 1 | Standoffs, cable exits, slide rails. Flat bottom |
-| Pico case lid | [`stl/pico_case_lid.stl`](stl/pico_case_lid.stl) | 1 | Through OLED window with a viewing chamfer, BOOTSEL hole, snaps |
+| Pico case lid | [`stl/pico_case_lid.stl`](stl/pico_case_lid.stl) | 1 | Through OLED window with a viewing chamfer, BOOTSEL hole, four latch fingers |
 | BMP280 body | [`stl/bmp280_int_body.stl`](stl/bmp280_int_body.stl) | 2 | One print for INT, one for EXT. Same solid |
 | BMP280 lid, internal | [`stl/bmp280_int_lid.stl`](stl/bmp280_int_lid.stl) | 1 | Two vents, debossed **INT** |
 | BMP280 lid, external | [`stl/bmp280_ext_lid.stl`](stl/bmp280_ext_lid.stl) | 1 | Same vents, debossed **EXT** |
@@ -30,13 +30,15 @@ Ears, tabs, the cable awning, and the tall still-air cavity are gone. The slide 
 | --- | --- | --- |
 | Pico base, body | 63 × 47 × 23 mm | 56.7 × 32.2 × 15.5 mm |
 | Pico base, including fixed ears | 63 × 71 × 23 mm | no ears. Rails make the print 56.7 × 35.0 × 15.5 mm |
-| Pico lid | 67.3 × 51.3 × 7.0 mm | 59.7 × 35.2 × 4.4 mm |
-| BMP280 body | 39.4 × 36.4 × 16.9 mm, plus 16 mm tabs each end (71.4 mm long) | 28.6 × 25.6 × 14.5 mm. Rails make it 28.6 × 28.4 × 14.5 mm |
-| BMP280 lid, INT | 44.3 × 41.3 × 11.9 mm | 31.6 × 28.6 × 4.4 mm |
-| BMP280 lid, EXT | 46.9 × 43.9 × 11.9 mm, with an eave | same 31.6 × 28.6 × 4.4 mm as INT |
-| Wall bracket | fixed to the body | separate part. Pico bracket is about 61 × 42 × 6 mm; BMP bracket is about 33 × 35 × 6 mm |
+| Pico lid | 67.3 × 51.3 × 7.0 mm | plate 59.7 × 35.2 × 4.4 mm. Latch fingers bring the print to 59.7 × 36.2 × 10.2 mm |
+| BMP280 body | 39.4 × 36.4 × 16.9 mm, plus 16 mm tabs each end (71.4 mm long) | 19.1 × 18.35 × 13.7 mm. Rails make the print 19.1 × 21.15 × 13.7 mm |
+| BMP280 lid, INT | 44.3 × 41.3 × 11.9 mm | plate 22.1 × 21.35 × 4.4 mm. Fingers and pull tabs make the print 23.1 × 21.35 × 11.2 mm |
+| BMP280 lid, EXT | 46.9 × 43.9 × 11.9 mm, with an eave | same solid as the INT lid, with an EXT label |
+| Wall bracket | fixed to the body | separate part. Pico bracket is about 61 × 42 × 6 mm; BMP bracket is about 23 × 28 × 6 mm |
 
 Walls are 1.6 mm (four 0.4 mm perimeters). Floor and lid are 1.2 mm (three perimeters). Pico standoffs are 3.0 mm above the floor. Gutters are 4.0 mm. The antenna end gap is 2.5 mm, with the end wall open across the 14 mm keep-out.
+
+The sensor body used to be 28.6 × 25.6 × 14.5 mm, sized around a 21 × 18 mm board. A purple 15 × 11.5 mm module sat in one corner. The cavity is now that module plus 0.45 mm on the sides and the back, and a 3.2 mm bay on the header edge.
 
 ## Dimensions and where they come from
 
@@ -53,8 +55,9 @@ Walls are 1.6 mm (four 0.4 mm perimeters). Floor and lid are 1.2 mm (three perim
 | OLED module | 36.0 × 12.5 mm, active area 22.38 × 5.58 mm | Waveshare 0.91" SSD1306 wiki / selection table. The glass is centred on the module (`oled_active_dx` / `oled_active_dy` are 0) |
 | OLED window | 22.78 × 5.98 mm through the lid | Active area plus 0.40 mm. A 45° chamfer opens toward the outside face so the pixels stay readable at an angle |
 | OLED stack | PCB 1.20 + glass 1.45 = 2.65 mm | Thickness is not published by Waveshare. 1.45 mm is the matching 0.91" 128×32 panel (EastRising ER-OLED0.91-1). Remeasure and set `oled_pcb_t` / `oled_glass_t` |
-| BMP280 module | 21 × 18 mm, six pins | HandsOn Technology user guide (GY-BM E/P 280) |
-| BMP280 thickness / pitch | 1.6 mm, 2.54 mm | Not printed as text in that guide. 1.6 mm matches the stated 1.18 g mass; 2.54 mm is the usual pitch of this row and fits the 21 mm edge |
+| BMP280 module | 15 × 11.5 × 1.6 mm, six pins | Purple GY-BMP280-3.3. Sellers list this outline; the repo has no drawing of the hole centres |
+| BMP280 mounting holes | Ø2.2 mm, 2.5 mm from each short edge, 2.4 mm from the edge opposite the header | Not on a published drawing. Override `bmp_hole_inset_x` and `bmp_hole_inset_back` if you measure something else. The walls still locate the board if the holes are off |
+| BMP280 pin pitch | 2.54 mm, five spaces (12.7 mm) on the 15 mm edge | The 1×6 Dupont shell is 15.24 mm and fits the chamber, not the PCB |
 | Walls / floor / lid | 1.6 / 1.2 / 1.2 mm | Four and three 0.4 mm perimeters |
 | Slide rail | 1.4 mm thick × 3.2 mm tall | Same section on the Pico case and both sensor bodies. Each rail has a 5.0 × 1.8 mm zip-tie slot and a 0.4 mm detent |
 
@@ -71,9 +74,11 @@ Each BMP280 module has six pins: **VCC, GND, SCL, SDA, CSB, SDO**. Tie **CSB to 
 
 The two boards both end at `0x76`, so they cannot share a bus. The firmware can instead put a sensor at **0x77** on I2C0 when that module's SDO is tied to 3V3. These printed parts are for two `0x76` boards, two buses, and two cable exits. The pin-by-pin wiring is in [docs/wiring.md](../docs/wiring.md).
 
-The sensor housing exit is a through opening, **16.5 × 6.0 mm**, on the pin-row face. It sits above the slide rails and clear of the bracket, and it is large enough for a 1×6 Dupont shell (15.24 mm wide) or a bundled 6-wire lead. A cleat inside the housing, posts beside the opening and a bar on the top edge, takes one zip tie without filling the hole. [`renders/bmp280_cable_exit.png`](renders/bmp280_cable_exit.png) shows that face.
+The sensor housing exit is a through opening, **15.5 × 4.6 mm** with 0.8 mm corners, centred on the pin row. It sits above the slide rails and clear of the bracket. A 1×6 Dupont shell (15.24 mm wide, about 2.5 mm tall) or soldered wires leave through that edge. A bar across the top of the opening bites the side walls and takes one zip tie without filling the hole. [`renders/bmp280_cable_exit.png`](renders/bmp280_cable_exit.png) shows that face.
 
 ![BMP280 cable exit](renders/bmp280_cable_exit.png)
+
+![BMP280 housing, lid seated](renders/bmp280_assembly.png)
 
 The Pico case has a separate exit for each cable, plus two fan exits and one power exit. INT and EXT are **8.0 × 5.0 mm**, so the 6-wire bundle from option (a) passes after the 1×6 shell stays on the module. The OLED does not use those exits; its PH2.0 lead stays inside the case. Each Pico cleat sits on the top edge of its opening, so the hole stays full height.
 
@@ -141,7 +146,7 @@ Fan power and tach rules match the controller [wiring guide](../docs/wiring.md):
 Both housings are the same shape. Put the **INT** lid on the one that shares the OLED bus, and the **EXT** lid on the one that has I2C1 to itself.
 
 - Out of the fan blast, and away from the motor body, the Pico regulator, and the 12 V wiring.
-- Lid up. The board stands on four short legs so it is not shorted to the plastic.
+- Lid up. The board stands on corner pads and two bosses around the M2 holes, so it is not shorted to the plastic. The side walls and the back wall locate it; the header edge stays open for the plug.
 - The lid vents are open slots. They are not a weather shield. These parts are for an indoor room.
 
 ## Using the case with and without the bracket
@@ -166,14 +171,16 @@ Heat-set inserts are M2, 3.5 mm OD × 3 mm long (short Ruthex-style). The printe
 | 0–4 | Zip ties, 5.0 × 1.8 mm slot | Through the slide rails when a bracket is not used |
 | 7 | Small zip ties | Five Pico exits (two FAN, INT, EXT, PWR) and one cable cleat in each sensor housing |
 
-The sensor lids snap on (0.35 mm engagement). There is no screw boss on those lids.
+The lids snap on. Each finger is 1.0 mm thick, with a 45° lead-in and 0.20 mm of interference once the hook sits in the recess. The BMP280 lid has one finger on each short end (8.45 mm arm). The Pico lid has two fingers on each long side (7.45 mm arm), above the bracket jaw and clear of the cable slots. There is no screw boss on the lids.
+
+To close a lid, press it on until the fingers click. To open it, pinch the pull tabs on the fingers and lift. A fingernail notch on the wall opposite the cable exit is the other way to start the lid off.
 
 ## Print settings and orientation
 
 - Nozzle 0.4 mm, layer 0.20 mm, **4 perimeters** on the 1.6 mm walls (3 on the 1.2 mm floor and lid), 4 top/bottom layers, 20% infill.
 - PLA or PETG. Indoor parts; colour does not matter for the sensor.
-- **No supports.** Bodies sit on the bed as modelled (floor and rails down). Cable slots are horizontal bridges. The snap lead-in is 45°.
-- Sensor lids and the Pico lid are modelled **outer face down**. Turn the Pico lid over in the slicer so the skirt is on the bed and the OLED chamfer faces up. The chamfer is 45° and prints as an overhang on the top of the lid. The debossed INT/EXT mark then faces up as well; it is only 0.45 mm deep.
+- **No supports.** Bodies sit on the bed as modelled (floor and rails down). Cable slots are horizontal openings. The latch recess is a side pocket.
+- Sensor lids and the Pico lid are modelled **outer face down, fingers pointing up**. Print them that way. Do not flip a lid onto its skirt: the hooks would land on the bed. The lead-in is a 45° overhang under 1 mm, and each pull tab sticks out 0.8 mm. The OLED chamfer is the wide opening on the bed and closes at 45°. The debossed INT/EXT mark faces the bed; it is only 0.45 mm deep.
 - The Pico lid's OLED clips are small ledges inside the nest. If a clip fails, print that lid slower with more cooling rather than adding support under the nest.
 - Brackets print flange-down, jaws up. The groove is open toward the case. The top lip bridges 1.7 mm, which a 0.4 mm nozzle does without support.
 
@@ -183,8 +190,8 @@ The sensor lids snap on (0.35 mm engagement). There is no screw boss on those li
 2. Set the Pico on the standoffs, USB toward the USB opening, antenna toward the open end wall. M2×4 down through the Pico holes.
 3. Fan leads out the two **FAN** slots, INT cable out **INT**, EXT cable out **EXT**, 5 V and 12 V in through **PWR**. One zip tie per cleat.
 4. Plug the OLED into I2C0 (GP4/GP5, 3V3, GND) and slide the module into the lid nest, glass toward the window, PH2.0 toward the USB end. The clips grab the back of the PCB. With the lid closed the active area is the hole in the lid; the chamfer is the wider opening on the outside.
-5. Press the lid on until the four snaps click. BOOTSEL is the round hole near the USB end of the lid. A fingernail notch is on the long side opposite the cable wall.
-6. Sensor boards sit on the four legs, pin row toward the cable slot, chip up. Option (a) sends six wires out the 16.5 × 6.0 mm exit. Option (b) solders CSB to VCC and SDO to GND on the module, and four wires leave. Zip-tie the lead under the cleat. Close the lid until the two snaps click. The fingernail notch is opposite the cable side.
+5. Press the Pico lid on until the four fingers click. Pinch a pull tab on each long side to take it off. BOOTSEL is the round hole near the USB end of the lid. The fingernail notch is on the long side opposite the cable wall.
+6. Sensor boards sit on the pads, pin row toward the cable slot, chip up. Option (a) sends six wires out the 15.5 × 4.6 mm exit. Option (b) solders CSB to VCC and SDO to GND on the module, and four wires leave. Zip-tie the lead under the bar. Press the lid on until the two end fingers click. Pinch the pull tabs to take it off. The fingernail notch is opposite the cable side.
 7. Leave the case on its flat bottom, tape it down, zip-tie it through the rail slots, or slide a bracket on from the open end of the rails and screw the flange to the wall.
 
 ## Adjusting the model
@@ -206,12 +213,15 @@ openscad -D 'fit_clearance=0.40' -D 'variant="EXT"' -D 'part="lid"' \
 
 | Knob | What it does |
 | --- | --- |
-| `fit_clearance` | Extra room per side. It grows the OLED pocket and the BMP280 cradle. Keep it between 0.20 and 0.60 mm |
+| `fit_clearance` | Extra room per side on the OLED pocket. Keep it between 0.20 and 0.60 mm |
 | `pico_header_above_pcb` | Raise this if your headers are taller than 8.5 mm. The case grows with it |
 | `pico_bootsel_from_usb_edge` | Move the BOOTSEL hole along the board. The OLED nest must stay clear of it |
 | `oled_pcb_t`, `oled_glass_t` | Stack height if you remeasure the module. The glass is seated against the lid |
 | `oled_active_dx`, `oled_active_dy` | Shift the window if the pixels are not centred on your module |
-| `bmp_air` | Clearance between the BMP280 and the shell |
+| `bmp_air` | Side and back clearance around the 15 × 11.5 mm module. Keep it between 0.30 and 0.50 mm |
+| `bmp_pcb_l`, `bmp_pcb_w` | Module outline if yours is not 15 × 11.5 mm. The body, the lid, and the bracket follow |
+| `bmp_header_bay` | Room in front of the pin row for a Dupont plug or soldered wires |
+| `bmp_hole_inset_x`, `bmp_hole_inset_back` | Move the M2 holes if you measure different centres |
 | `bmp_pcb_t`, `bmp_pin_pitch` | If your module is not 1.6 mm or the row is not 2.54 mm |
 | `pico_standoff_h` | More room under the board for solder tails. The datasheet notes solder under the USB connector can hold a bare board off the table |
 | `variant`, `part`, `which` | `"INT"` / `"EXT"`, `"body"` / `"lid"` / `"assembly"` / `"section"` / `"closed"`, and `"pico"` / `"bmp"` for the bracket |

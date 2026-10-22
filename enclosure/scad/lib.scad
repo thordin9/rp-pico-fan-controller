@@ -23,18 +23,29 @@ module stadium_x(length, height, depth) {
         }
 }
 
-// Snap ridge. Root on the Y=0 plane, protrudes toward +Y.
-// Bottom `snap_catch_h` is a vertical catch; above that a 45° lead-in.
-module snap_ridge(length, prot, catch_h) {
-    translate([-length / 2, 0, 0]) {
-        cube([length, prot, catch_h]);
-        hull() {
-            translate([0, 0, catch_h])
-                cube([length, prot, 0.02]);
-            translate([0, 0, catch_h + prot])
-                cube([length, 0.02, 0.02]);
-        }
+// Cantilever finger. Root on z = 0, tip toward +z, inner face on x = 0,
+// hook toward +x. `arm` is the distance from the root to the catch face.
+// The lead-in drops 45° because `lead` equals the hook's inward reach.
+// Sizes are arguments: a file brought in with `use` cannot see the
+// caller's variables. The root is buried 0.2 mm into the lid plate, the
+// hook overlaps the arm, and the pull tab overlaps the outer face, so
+// the finger is one solid.
+module latch_finger(arm, t, w, gap, reach, catch_h, lead) {
+    hx = gap + reach;
+    translate([-t, -w / 2, -0.2])
+        cube([t, w, arm + 0.2]);
+    translate([-0.02, -w / 2, arm - 0.04])
+        cube([hx + 0.02, w, catch_h + 0.04]);
+    hull() {
+        translate([0, -w / 2, arm + catch_h + lead - 0.04])
+            cube([0.05, w, 0.05]);
+        translate([hx - 0.05, -w / 2, arm + catch_h - 0.04])
+            cube([0.05, w, 0.08]);
     }
+    // On the outer face, just under the catch, so a pinch releases it.
+    // Buried 0.2 mm into the arm (the hook is inboard of this face).
+    translate([-t - 0.8, -1.1, arm - 0.7])
+        cube([1.0, 2.2, 0.9]);
 }
 
 module deboss_text(label, size, depth=0.65) {

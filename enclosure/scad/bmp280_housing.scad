@@ -1,11 +1,11 @@
-// BMP280 housing, printed twice. One compact indoor body for both.
+// BMP280 housing, printed twice. One body for the purple GY-BMP280.
 //   variant = "INT" or "EXT"   only the lid label changes
 //   part    = "body" | "lid" | "assembly" | "section"
 //
-// No tabs, no rain awning, no drip loop, no radiation-shield louvers.
-// Both lids are vented the same way. Slide rails match the Pico case
-// so mount.scad can grip either housing. The base is flat without the
-// mount; each rail has a zip-tie slot.
+// The board sits against the side walls and the back wall, with a bay
+// on the header edge for a 1×6 Dupont plug or soldered wires. Slide rails
+// match the Pico case. The lid locates on a short skirt and locks with
+// two cantilever fingers, one on each end.
 
 use <lib.scad>
 include <dimensions.scad>
@@ -16,161 +16,192 @@ part = "body";
 ext = variant == "EXT";
 label = ext ? "EXT" : "INT";
 
-corner_r = 2.0;
-// 1x6 Dupont housing is 6 × 2.54 = 15.24 mm wide and about 2.5 mm tall.
-// A bundled 6-wire lead is closer to 6 mm across. The opening takes either.
-cable_w = 16.5;
-cable_h = 6.0;
-cable_z0 = rail_h + 0.9;
-// Cutter starts 1.2 mm outside the wall and runs 2.2 mm past the inner
-// face. A cutter centred on the outer face used to stop 0.2 mm short and
-// left a skin, so the recess looked like a slot and was not an exit.
+bmp_corner = 1.2;
+// Rounded opening, not a full stadium: a semicircle end would pinch a
+// 15.24 mm Dupont shell. 0.8 mm corners still print without a sharp notch.
+cable_w = 15.5;
+cable_h = 4.6;
+cable_r = 0.8;
+cable_z0 = rail_h + 0.55;
 cable_y0 = -1.2;
 cable_depth = wall + 3.4;
 
 module fit_checks() {
     assert(variant == "INT" || variant == "EXT", "variant must be INT or EXT");
-    assert(abs(bmp_outer_l - 28.6) < 1e-6, "BMP280 length drifted");
-    assert(abs(bmp_outer_w - 25.6) < 1e-6, "BMP280 width drifted");
-    assert(abs(bmp_body_h - 14.5) < 1e-6, "BMP280 height drifted");
-    assert(cable_z0 >= rail_h + 0.6, "Cable slot cuts the slide rail");
+    assert(abs(bmp_outer_l - 19.1) < 1e-6, "BMP280 length drifted");
+    assert(abs(bmp_outer_w - 18.35) < 1e-6, "BMP280 width drifted");
+    assert(abs(bmp_body_h - 13.7) < 1e-6, "BMP280 height drifted");
+    assert(abs((bmp_board_x + bmp_pcb_l / 2) - bmp_outer_l / 2) < 1e-6,
+           "Header is not centred on the cable exit");
+    assert(cable_z0 >= rail_h + 0.4, "Cable slot cuts the slide rail");
     assert(cable_z0 + cable_h < bmp_body_h - skirt_h - 0.4,
            "Cable slot meets the lid skirt");
-    assert(cable_w + 1e-6 >= 6 * 2.54, "Exit is narrower than a 1x6 Dupont housing");
-    assert(cable_h >= 5.5, "Exit is too short for a bundled 6-wire lead");
+    assert(cable_w + 1e-6 >= 6 * 2.54, "Exit is narrower than a 1x6 Dupont shell");
+    assert(cable_h >= 4.2, "Exit is too short for a Dupont plug");
+    assert(cable_w + 0.2 < bmp_chamber_l, "Cable exit breaks the side walls");
     assert(cable_y0 < -0.4, "Cable cutter does not start outside the wall");
     assert(cable_y0 + cable_depth > wall + 1.5,
            "Cable cutter does not break into the cavity");
-    assert(cable_w / 2 + 2.0 < bmp_outer_l / 2 - corner_r,
+    assert(cable_w / 2 + 0.5 < bmp_outer_l / 2 - bmp_corner,
            "Cable exit runs into the corner radius");
+    assert(bmp_latch_z >= 2.4, "Latch recess meets the floor");
+    assert(bmp_latch_z + latch_recess_h + bmp_latch_arm < bmp_body_h + 0.2,
+           "Latch arm does not reach the recess");
     echo("FIT bmp", variant, bmp_outer_l, bmp_outer_w, bmp_body_h);
-    echo("FIT bmp cable", cable_w, cable_h, "z", cable_z0, "y", cable_y0, cable_depth);
+    echo("FIT bmp cable", cable_w, cable_h, "z", cable_z0);
+    echo("FIT bmp board", bmp_board_x, bmp_board_y);
+}
+
+module rounded_box(x, y, z, r) {
+    hull() {
+        for (dx = [r, x - r])
+            for (dy = [r, y - r])
+                translate([dx, dy, 0])
+                    cylinder(h=z, r=r);
+    }
 }
 
 module cable_slot() {
-    translate([bmp_outer_l / 2, cable_y0 + cable_depth / 2, cable_z0])
-        stadium_x(cable_w, cable_h, cable_depth);
+    translate([bmp_outer_l / 2 - cable_w / 2, cable_y0, cable_z0])
+        rounded_box(cable_w, cable_depth, cable_h, cable_r);
 }
 
 module shell() {
     difference() {
         union() {
-            rounded_rect(bmp_outer_l, bmp_outer_w, bmp_body_h, corner_r);
+            rounded_rect(bmp_outer_l, bmp_outer_w, bmp_body_h, bmp_corner);
             slide_rails(bmp_outer_l, bmp_outer_w, rail_t, rail_h, rail_end_gap,
                         ziptie_slot_l, ziptie_slot_w, rail_detent);
         }
         translate([wall, wall, floor_t])
             cube([bmp_chamber_l, bmp_chamber_w, bmp_body_h]);
         cable_slot();
+        latch_recesses();
     }
 }
 
+module latch_recesses() {
+    wy = bmp_outer_w / 2 - (latch_w + 0.8) / 2;
+    translate([-0.2, wy, bmp_latch_z])
+        cube([latch_recess_d + 0.2, latch_w + 0.8, latch_recess_h]);
+    translate([bmp_outer_l - latch_recess_d, wy, bmp_latch_z])
+        cube([latch_recess_d + 0.2, latch_w + 0.8, latch_recess_h]);
+}
+
 module platform() {
-    // Four short legs and a 0.8 mm lip so the module cannot slide into
-    // the cable slot. The sensor sits on the legs, chip up.
-    x0 = wall + bmp_air;
-    y0 = wall + bmp_air;
-    leg = 2.4;
-    inset = 0.8;
-    for (px = [inset, bmp_pocket_l - leg - inset])
-        for (py = [inset, bmp_pocket_w - leg - inset])
-            translate([x0 + px, y0 + py, floor_t - 0.3])
-                cube([leg, leg, bmp_platform_h + 0.3]);
-    translate([x0 - 0.4, y0 + bmp_pocket_w - 1.0, floor_t + bmp_platform_h - 0.3])
-        cube([bmp_pocket_l + 0.8, 1.4, 1.6]);
+    // Pads under the corners, and a boss around each M2 hole. The walls
+    // locate the board in X and against the back; the header edge stays open.
+    leg = 1.8;
+    for (px = [0.25, bmp_pcb_l - leg - 0.25])
+        for (py = [0.25, bmp_pcb_w - leg - 0.25])
+            translate([bmp_board_x + px, bmp_board_y + py, floor_t - 0.2])
+                cube([leg, leg, bmp_platform_h + 0.2]);
+    for (hx = [bmp_hole_inset_x, bmp_pcb_l - bmp_hole_inset_x])
+        translate([bmp_board_x + hx,
+                   bmp_board_y + bmp_pcb_w - bmp_hole_inset_back,
+                   floor_t - 0.2])
+            cylinder(d=4.2, h=bmp_platform_h + 0.2);
+}
+
+module screw_holes() {
+    for (hx = [bmp_hole_inset_x, bmp_pcb_l - bmp_hole_inset_x])
+        translate([bmp_board_x + hx,
+                   bmp_board_y + bmp_pcb_w - bmp_hole_inset_back,
+                   -0.2])
+            cylinder(d=bmp_hole_d, h=floor_t + bmp_platform_h + 0.8);
 }
 
 module strain_cleat() {
-    // Posts stand just outside the opening and bite the wall. The bar
-    // sits on the inner face at the top of the slot, so the through
-    // hole stays the full 16.5 × 6 mm and a zip tie can pass under the bar.
-    post = 1.4;
-    gap = 0.5;
-    x0 = bmp_outer_l / 2 - cable_w / 2 - gap - post;
-    span = cable_w + 2 * gap + 2 * post;
-    bar_z = cable_z0 + cable_h;
-    bar_h = 1.4;
-    post_h = (bar_z + bar_h) - (floor_t - 0.2);
-    for (px = [x0, x0 + span - post])
-        translate([px, wall - 0.35, floor_t - 0.2])
-            cube([post, 2.0, post_h]);
-    translate([x0, wall + 0.35, bar_z])
-        cube([span, 1.8, bar_h]);
-}
-
-module snaps() {
-    z = bmp_body_h - 0.85 - snap_ridge_h;
-    bite = 0.35;
-    translate([bmp_outer_l / 2, bite, z])
-        rotate([0, 0, 180])
-            snap_ridge(snap_len, snap_protrusion + bite, snap_catch_h);
-    translate([bmp_outer_l / 2, bmp_outer_w - bite, z])
-        snap_ridge(snap_len, snap_protrusion + bite, snap_catch_h);
+    // Bar on the inner face at the top of the slot. The ends bite the
+    // side walls, so the through hole stays the full opening.
+    translate([wall - 0.4, wall + 0.25, cable_z0 + cable_h])
+        cube([bmp_chamber_l + 0.8, 1.6, 1.2]);
 }
 
 module body() {
     color(ext ? [0.55, 0.58, 0.52] : [0.45, 0.62, 0.70])
-        union() {
-            shell();
-            platform();
-            strain_cleat();
-            snaps();
+        difference() {
+            union() {
+                shell();
+                platform();
+                strain_cleat();
+            }
+            screw_holes();
         }
 }
 
 lid_outer_l = bmp_outer_l + 2 * (skirt_gap + skirt_t);
 lid_outer_w = bmp_outer_w + 2 * (skirt_gap + skirt_t);
+ox = skirt_gap + skirt_t;
+oy = skirt_gap + skirt_t;
 
-function lid_of(body_coord, body_span, lid_span) =
-    (lid_span - body_span) / 2 + body_coord;
+module one_finger(arm) {
+    latch_finger(arm, latch_t, latch_w, latch_gap, latch_reach, latch_catch, latch_lead);
+}
 
-module lid_snap_windows() {
-    catch_z0 = bmp_body_h - 0.85 - snap_ridge_h;
-    catch_z1 = catch_z0 + snap_catch_h;
-    z0 = bmp_body_h + lid_t - (catch_z1 + 0.2);
-    z1 = bmp_body_h + lid_t - (catch_z0 - 0.2);
-    win_h = z1 - z0;
-    win_l = snap_len + 0.8;
-    for (side = [0, 1]) {
-        y = lid_of(side == 0 ? 0 : bmp_outer_w, bmp_outer_w, lid_outer_w);
-        translate([lid_outer_l / 2, y, z0 + win_h / 2])
-            cube([win_l, skirt_t + 1.4, win_h], center=true);
-    }
+module lid_latches() {
+    // 180° seating mirrors Y, not X, so the end fingers stay on the ends.
+    yc = oy + bmp_outer_w / 2;
+    translate([ox - latch_gap, yc, lid_t])
+        one_finger(bmp_latch_arm);
+    translate([ox + bmp_outer_l + latch_gap, yc, lid_t])
+        mirror([1, 0, 0])
+            one_finger(bmp_latch_arm);
+}
+
+module latch_slots() {
+    // Cut the skirt away around each finger. The finger is added back
+    // and roots only in the lid plate, so the arm can flex.
+    yc = oy + bmp_outer_w / 2;
+    slot_w = latch_w + 2 * latch_kerf;
+    h = skirt_h + 0.55;
+    y0 = yc - slot_w / 2;
+    translate([-0.2, y0, lid_t + 0.05])
+        cube([skirt_t + 0.55, slot_w, h]);
+    translate([lid_outer_l - skirt_t - 0.35, y0, lid_t + 0.05])
+        cube([skirt_t + 0.6, slot_w, h]);
 }
 
 module lid_vents() {
-    for (dx = [-7.2, 7.2])
-        translate([lid_outer_l / 2 + dx, lid_outer_w / 2, -0.2])
-            stadium_x(6.0, 2.0, lid_t + 0.6);
+    // Two slots over the middle of the board, where the chip sits.
+    cx = ox + bmp_board_x + bmp_pcb_l / 2;
+    cy = bmp_outer_w + oy - (bmp_board_y + bmp_pcb_w / 2);
+    for (dx = [-1.7, 1.7])
+        translate([cx + dx - 2.1, cy - 0.9, -0.2])
+            rounded_box(4.2, 1.8, lid_t + 0.6, 0.6);
 }
 
 module lid() {
     color(ext ? [0.62, 0.66, 0.58] : [0.30, 0.45, 0.52])
         difference() {
             union() {
-                rounded_rect(lid_outer_l, lid_outer_w, lid_t, corner_r);
-                translate([0, 0, lid_t - 0.2])
-                    difference() {
-                        rounded_rect(lid_outer_l, lid_outer_w, skirt_h + 0.2, corner_r);
-                        translate([skirt_t, skirt_t, -0.2])
-                            cube([lid_outer_l - 2 * skirt_t,
-                                  lid_outer_w - 2 * skirt_t,
-                                  skirt_h + 0.8]);
-                    }
+                rounded_rect(lid_outer_l, lid_outer_w, lid_t, bmp_corner);
+                difference() {
+                    translate([0, 0, lid_t - 0.2])
+                        rounded_rect(lid_outer_l, lid_outer_w, skirt_h + 0.2, bmp_corner);
+                    translate([skirt_t, skirt_t, lid_t - 0.4])
+                        cube([lid_outer_l - 2 * skirt_t,
+                              lid_outer_w - 2 * skirt_t,
+                              skirt_h + 0.8]);
+                    latch_slots();
+                }
+                lid_latches();
             }
-            lid_snap_windows();
             lid_vents();
-            translate([lid_outer_l / 2, lid_outer_w / 2, -0.15])
-                deboss_text(label, 5.0, 0.45);
-            translate([lid_outer_l / 2, lid_outer_w - skirt_t / 2,
-                       lid_t + skirt_h - 1.05])
-                cube([9, skirt_t + 1.6, 2.2], center=true);
+            translate([lid_outer_l / 2, lid_outer_w - 4.2, -0.15])
+                deboss_text(label, 3.6, 0.45);
+            // Notch on the edge that seats opposite the cable wall.
+            // Seating mirrors Y, so that edge is lid y = 0.
+            translate([lid_outer_l / 2, skirt_t / 2, lid_t + skirt_h - 1.05])
+                cube([8, skirt_t + 1.6, 2.2], center=true);
         }
 }
 
 module seated_lid() {
+    // 180° about X turns the outer face up and mirrors Y. The translation
+    // puts that mirrored skirt back over the body.
     translate([-(lid_outer_l - bmp_outer_l) / 2,
-               -(lid_outer_w - bmp_outer_w) / 2,
+               bmp_outer_w + (lid_outer_w - bmp_outer_w) / 2,
                bmp_body_h + lid_t])
         rotate([180, 0, 0])
             lid();
@@ -178,7 +209,7 @@ module seated_lid() {
 
 module ghost_module() {
     color([0.75, 0.15, 0.12, 0.55])
-        translate([wall + bmp_air, wall + bmp_air, floor_t + bmp_platform_h])
+        translate([bmp_board_x, bmp_board_y, floor_t + bmp_platform_h])
             cube([bmp_pcb_l, bmp_pcb_w, bmp_pcb_t]);
 }
 
