@@ -2,8 +2,9 @@
 //   part = "base" | "lid" | "assembly" | "section" | "closed"
 //
 // The base prints bottom-down. The lid is modelled outer-face down
-// (z = 0). In the slicer, turn the lid over so the skirt is on the bed:
-// the OLED chamfer then faces up and prints as a 45° overhang.
+// (z = 0) with the latch fingers pointing up. Print it that way:
+// the hooks are a small 45° overhang, and flipping the lid would
+// put the fingers on the bed.
 //
 // The Pico sits on four standoffs. M2 heat-set inserts are pressed in
 // from the bottom; M2 screws come down through the Pico's own holes.
@@ -19,9 +20,9 @@ include <dimensions.scad>
 
 part = "base";
 
-outer_l = wall + pico_l + pico_antenna_gap + wall;
-outer_w = wall + pico_gutter + pico_w + pico_gutter + wall;
-base_h = floor_t + pico_standoff_h + pico_t + pico_header_above_pcb + pico_above_header;
+outer_l = pico_outer_l;
+outer_w = pico_outer_w;
+base_h = pico_base_h;
 
 pcb_x0 = wall;
 pcb_y0 = wall + pico_gutter;
@@ -103,7 +104,24 @@ module fit_checks() {
     // on the glass. The chamfer is wider, on the outside face.
     assert(oled_window_l + 1e-6 >= oled_active_l, "Window clips the active area");
     assert(oled_window_w + 1e-6 >= oled_active_w, "Window clips the active area");
+    // Recess is latch_w + 0.8 wide. It has to miss every cable slot and
+    // stay off the corner radius. The jaw (lip + groove + lip) ends
+    // below pico_latch_z.
+    half = (latch_w + 0.8) / 2;
+    assert(pico_latch_front_a - half > corner_r, "Front latch runs into the USB corner");
+    assert(pico_latch_front_a + half < fan_slot_x[0] - fan_slot_l / 2 - 0.3,
+           "Front latch meets a FAN slot");
+    assert(pico_latch_front_b - half > i2c_ext_x + sensor_slot_l / 2 + 0.3,
+           "Front latch meets the EXT slot");
+    assert(pico_latch_front_b + half < outer_l - corner_r, "Front latch runs into the antenna corner");
+    assert(pico_latch_back_a - half > corner_r, "Back latch runs into the USB corner");
+    assert(pico_latch_back_a + half < pwr_slot_x - pwr_slot_l / 2 - 0.3,
+           "Back latch meets the PWR slot");
+    assert(pico_latch_back_b - half > pwr_slot_x + pwr_slot_l / 2 + 0.3,
+           "Back latch meets the PWR slot");
+    assert(pico_latch_back_b + half < outer_l - corner_r, "Back latch runs into the antenna corner");
     echo("FIT pico case", outer_l, outer_w, base_h);
+    echo("FIT pico latch", pico_latch_front_a, pico_latch_front_b, pico_latch_back_a, pico_latch_back_b);
     echo("FIT usb tip x", usb_tip_x, "opening z", usb_z0);
     echo("FIT header top", header_top_z, "nest y0", nest_y0, "header inner", header_inner_y);
     echo("FIT oled", oled_cx, oled_cy, "active", oled_active_cx, oled_active_cy, "nest x0", nest_x0);
@@ -155,17 +173,14 @@ module wall_labels() {
                 deboss_text("PWR", 2.4, 0.45);
 }
 
-module snaps() {
-    z = base_h - 0.9 - snap_ridge_h;
-    bite = 0.35;
-    xs = [outer_l * 0.32, outer_l * 0.68];
-    for (x = xs) {
-        translate([x, bite, z])
-            rotate([0, 0, 180])
-                snap_ridge(snap_len, snap_protrusion + bite, snap_catch_h);
-        translate([x, outer_w - bite, z])
-            snap_ridge(snap_len, snap_protrusion + bite, snap_catch_h);
-    }
+module latch_recesses() {
+    win = latch_w + 0.8;
+    for (x = [pico_latch_front_a, pico_latch_front_b])
+        translate([x - win / 2, -0.2, pico_latch_z])
+            cube([win, latch_recess_d + 0.2, latch_recess_h]);
+    for (x = [pico_latch_back_a, pico_latch_back_b])
+        translate([x - win / 2, outer_w - latch_recess_d, pico_latch_z])
+            cube([win, latch_recess_d + 0.2, latch_recess_h]);
 }
 
 module shell() {
@@ -181,6 +196,7 @@ module shell() {
         antenna_window();
         cable_notches();
         wall_labels();
+        latch_recesses();
     }
 }
 
@@ -213,7 +229,6 @@ module base() {
             union() {
                 shell();
                 standoffs();
-                snaps();
                 cleats();
             }
             for (x = hole_x)
@@ -230,6 +245,8 @@ module base() {
 
 lid_outer_l = outer_l + 2 * (skirt_gap + skirt_t);
 lid_outer_w = outer_w + 2 * (skirt_gap + skirt_t);
+ox = skirt_gap + skirt_t;
+oy = skirt_gap + skirt_t;
 
 function lid_of(v, body_span, lid_span) = (lid_span - body_span) / 2 + v;
 
@@ -289,21 +306,33 @@ module bootsel_hole() {
         cylinder(d=pico_bootsel_hole_d, h=lid_t + 0.6);
 }
 
-module lid_snap_windows() {
-    catch_z0 = base_h - 0.9 - snap_ridge_h;
-    catch_z1 = catch_z0 + snap_catch_h;
-    z0 = base_h + lid_t - (catch_z1 + 0.25);
-    z1 = base_h + lid_t - (catch_z0 - 0.25);
-    win_h = z1 - z0;
-    win_l = snap_len + 0.8;
-    xs = [outer_l * 0.32, outer_l * 0.68];
-    for (x = xs) {
-        for (side = [0, 1]) {
-            y = lid_of(side == 0 ? 0 : outer_w, outer_w, lid_outer_w);
-            translate([lid_of(x, outer_l, lid_outer_l), y, z0 + win_h / 2])
-                cube([win_l, skirt_t + 1.4, win_h], center=true);
-        }
-    }
+module one_finger(arm) {
+    latch_finger(arm, latch_t, latch_w, latch_gap, latch_reach, latch_catch, latch_lead);
+}
+
+module lid_latches() {
+    // Seating mirrors Y. The cable wall (body y = 0) lands at high lid y,
+    // and the hook has to point back toward the body.
+    for (x = [pico_latch_front_a, pico_latch_front_b])
+        translate([ox + x, oy + outer_w + latch_gap, lid_t])
+            rotate([0, 0, -90])
+                one_finger(pico_latch_arm);
+    for (x = [pico_latch_back_a, pico_latch_back_b])
+        translate([ox + x, oy - latch_gap, lid_t])
+            rotate([0, 0, 90])
+                one_finger(pico_latch_arm);
+}
+
+module latch_slots() {
+    slot_w = latch_w + 2 * latch_kerf;
+    h = skirt_h + 0.55;
+    z0 = lid_t + 0.05;
+    for (x = [pico_latch_front_a, pico_latch_front_b])
+        translate([ox + x - slot_w / 2, lid_outer_w - skirt_t - 0.35, z0])
+            cube([slot_w, skirt_t + 0.6, h]);
+    for (x = [pico_latch_back_a, pico_latch_back_b])
+        translate([ox + x - slot_w / 2, -0.2, z0])
+            cube([slot_w, skirt_t + 0.55, h]);
 }
 
 module lid() {
@@ -313,29 +342,33 @@ module lid() {
         difference() {
             union() {
                 rounded_rect(lid_outer_l, lid_outer_w, lid_t, corner_r);
-                translate([0, 0, lid_t - 0.2])
-                    difference() {
+                difference() {
+                    translate([0, 0, lid_t - 0.2])
                         rounded_rect(lid_outer_l, lid_outer_w, skirt_h + 0.2, max(corner_r - 0.2, 0.4));
-                        translate([skirt_t, skirt_t, -0.2])
-                            cube([lid_outer_l - 2 * skirt_t,
-                                  lid_outer_w - 2 * skirt_t,
-                                  skirt_h + 1]);
-                    }
+                    translate([skirt_t, skirt_t, lid_t - 0.4])
+                        cube([lid_outer_l - 2 * skirt_t,
+                              lid_outer_w - 2 * skirt_t,
+                              skirt_h + 1]);
+                    latch_slots();
+                }
                 oled_nest();
+                lid_latches();
             }
             oled_window();
             bootsel_hole();
-            lid_snap_windows();
+            // Opposite the cable wall once the lid is seated (Y is mirrored).
             translate([lid_of(oled_cx, outer_l, lid_outer_l),
-                       lid_outer_w - skirt_t / 2,
+                       skirt_t / 2,
                        lid_t + skirt_h - 1.15])
                 cube([10, skirt_t + 1.6, 2.4], center=true);
         }
 }
 
 module seated_lid() {
+    // 180° about X mirrors Y. Shift by the far overhang so the skirt
+    // lands on the body instead of beside it.
     translate([-(lid_outer_l - outer_l) / 2,
-               -(lid_outer_w - outer_w) / 2,
+               outer_w + (lid_outer_w - outer_w) / 2,
                base_h + lid_t])
         rotate([180, 0, 0])
             lid();

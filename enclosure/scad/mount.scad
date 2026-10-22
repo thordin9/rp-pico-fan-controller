@@ -13,8 +13,8 @@ include <dimensions.scad>
 which = "pico";
 
 pico = which == "pico";
-body_l = pico ? 56.7 : 28.6;
-body_w = pico ? 32.2 : 25.6;
+body_l = pico ? pico_outer_l : bmp_outer_l;
+body_w = pico ? pico_outer_w : bmp_outer_w;
 
 jaw_wall = 1.6;
 lip = 1.3;

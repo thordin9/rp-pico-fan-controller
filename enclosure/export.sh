@@ -95,6 +95,7 @@ run_png bmp280_housing.scad "$PNG/bmp280_int_lid.png" -D 'variant="INT"' -D 'par
 run_png bmp280_housing.scad "$PNG/bmp280_ext_body.png" -D 'variant="EXT"' -D 'part="body"'
 run_png bmp280_housing.scad "$PNG/bmp280_ext_lid.png" -D 'variant="EXT"' -D 'part="lid"'
 run_png bmp280_housing.scad "$PNG/bmp280_section.png" -D 'variant="INT"' -D 'part="section"'
+run_png bmp280_housing.scad "$PNG/bmp280_assembly.png" -D 'variant="INT"' -D 'part="assembly"'
 # Cable face is Y=0. Look from in front and below so the through exit is the subject.
 run_png bmp280_housing.scad "$PNG/bmp280_cable_exit.png" \
     --camera "0,0,0,25,0,20,0" \
@@ -211,32 +212,49 @@ expect(base, "PWR exit", (16.0, 31.4, 6.8), False)
 expect(base, "PWR exit into cavity", (16.0, 30.3, 6.8), False)
 expect(base, "floor", (28.0, 16.0, 0.6), True)
 expect(base, "zip slot in rail", (28.35, -0.7, 1.6), False)
+expect(base, "front latch recess", (5.2, 0.25, 7.2), False)
+expect(base, "wall behind front latch", (5.2, 1.15, 7.2), True)
+expect(base, "back latch recess", (44.0, 31.9, 7.2), False)
 
 lid = analyze(stl_dir / "pico_case_lid.stl")
 # Through-window on the active-area centre. Beside it the lid is solid.
 expect(lid, "OLED window", (34.6, 17.6, 0.4), False)
 expect(lid, "lid beside window", (34.6, 24.0, 0.6), True)
 expect(lid, "BOOTSEL", (10.6, 17.6, 0.6), False)
+expect(lid, "front latch arm", (6.7, 34.4, 5.0), True)
+expect(lid, "front latch hook", (6.7, 33.2, 8.9), True)
+expect(lid, "back latch arm", (9.5, 0.8, 5.0), True)
+expect(lid, "front latch kerf", (3.35, 34.5, 2.8), False)
 
 ib = analyze(stl_dir / "bmp280_int_body.stl")
-expect(ib, "INT cable in the wall", (14.3, 0.8, 7.1), False)
-expect(ib, "INT cable into the cavity", (14.3, 2.2, 7.1), False)
-expect(ib, "INT cable outside the wall", (14.3, -0.4, 7.1), False)
-expect(ib, "INT wall beside cable", (4.8, 0.8, 7.1), True)
-expect(ib, "INT floor", (14.0, 12.0, 0.5), True)
-expect(ib, "INT cavity", (14.0, 12.0, 8.0), False)
+expect(ib, "INT cable in the wall", (9.55, 0.8, 6.05), False)
+expect(ib, "INT cable into the cavity", (9.55, 2.2, 6.05), False)
+expect(ib, "INT cable outside the wall", (9.55, -0.4, 6.05), False)
+expect(ib, "INT wall beside cable", (1.2, 0.8, 6.05), True)
+expect(ib, "INT floor", (9.5, 10.0, 0.4), True)
+expect(ib, "INT cavity", (9.5, 10.0, 8.0), False)
+expect(ib, "INT latch recess", (0.25, 9.175, 4.4), False)
+expect(ib, "INT wall behind latch", (1.15, 9.175, 4.4), True)
+expect(ib, "INT cleat", (9.55, 2.2, 8.9), True)
+expect(ib, "INT under cleat", (9.55, 2.2, 7.5), False)
 
 eb = analyze(stl_dir / "bmp280_ext_body.stl")
-expect(eb, "EXT cable in the wall", (14.3, 0.8, 7.1), False)
-expect(eb, "EXT cable into the cavity", (14.3, 2.2, 7.1), False)
-expect(eb, "EXT wall beside cable", (4.8, 0.8, 7.1), True)
-expect(eb, "EXT cavity", (14.0, 12.0, 8.0), False)
+expect(eb, "EXT cable in the wall", (9.55, 0.8, 6.05), False)
+expect(eb, "EXT cable into the cavity", (9.55, 2.2, 6.05), False)
+expect(eb, "EXT wall beside cable", (1.2, 0.8, 6.05), True)
+expect(eb, "EXT cavity", (9.5, 10.0, 8.0), False)
+expect(eb, "EXT latch recess", (0.25, 9.175, 4.4), False)
+expect(eb, "EXT wall behind latch", (1.15, 9.175, 4.4), True)
 
 il = analyze(stl_dir / "bmp280_int_lid.stl")
-expect(il, "INT lid vent", (23.0, 14.3, 0.6), False)
-expect(il, "INT label does not punch through", (15.8, 14.3, 0.95), True)
+expect(il, "INT lid vent", (11.05, 9.3, 0.4), False)
+expect(il, "INT label does not punch through", (11.05, 17.15, 1.05), True)
+expect(il, "INT latch arm", (0.8, 10.675, 5.0), True)
+expect(il, "INT latch hook", (1.7, 10.675, 9.95), True)
+expect(il, "INT latch kerf", (0.6, 7.3, 2.8), False)
 el = analyze(stl_dir / "bmp280_ext_lid.stl")
-expect(el, "EXT lid vent", (23.0, 14.3, 0.6), False)
+expect(el, "EXT lid vent", (11.05, 9.3, 0.4), False)
+expect(el, "EXT latch hook", (1.7, 10.675, 9.95), True)
 
 analyze(stl_dir / "mount_pico.stl")
 analyze(stl_dir / "mount_bmp.stl")

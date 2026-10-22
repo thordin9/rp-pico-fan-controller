@@ -29,11 +29,21 @@ skirt_h = 3.2;
 skirt_t = 1.2;
 skirt_gap = 0.30;
 
-// Snap: the ridge sticks out past the body. Engagement is what's left
-// after the skirt gap. A 1.2 mm skirt flexes over a short ridge.
-snap_protrusion = 0.65;
-snap_catch_h = 0.55;
-snap_len = 8.0;
+// Cantilever latch. The skirt only locates the lid. The finger is the
+// spring: 1.0 mm thick, long enough to flex, 45° lead-in, and 0.20 mm
+// of interference once it sits in the recess.
+latch_t = 1.0;
+latch_w = 5.5;
+latch_gap = 0.20;
+latch_reach = 0.75;
+latch_interference = 0.20;
+latch_catch = 0.60;
+latch_kerf = 1.2;
+latch_recess_d = latch_reach - latch_interference;
+latch_lead = latch_reach + latch_gap;
+latch_recess_h = latch_catch + latch_lead + 0.40;
+bmp_latch_z = 3.4;
+pico_latch_z = 6.2;
 
 // --------------------------------------------------------------------------
 // Raspberry Pi Pico W
@@ -125,36 +135,33 @@ oled_active_dx = 0.0;
 oled_active_dy = 0.0;
 
 // --------------------------------------------------------------------------
-// BMP280 module (HandsOn Technology user guide, attached)
-//   Size: 21 mm × 18 mm. Weight 1.18 g.
-//   Six pins in one row: VCC, GND, SCL, SDA, CSB, SDO.
-//   Address 0x76 when SDO is tied to GND. CSB tied to 3V3 selects I2C.
-//   3.3 V module (GY-BM E/P 280). Tie CSB and SDO with a wire; the onboard
-//   pull resistors are not the tie. The housing exit fits a 6-wire lead
-//   (option a) or a 4-wire lead after CSB–VCC and SDO–GND jumpers (option b).
-// Firmware buses, matching the labels on the Pico case:
+// BMP280 module. The common purple GY-BMP280-3.3, not the 21 × 18 mm
+// HandsOn board. Sellers list it as 15 × 11.5 mm. Six pins on the long
+// edge: VCC, GND, SCL, SDA, CSB, SDO. Tie CSB to 3V3 and SDO to GND
+// with a wire (6-wire cable, or jumpers on the module).
+// Two mounting holes. Centres are not on a published drawing, so they
+// are named: 2.5 mm from each short edge, 2.4 mm from the edge opposite
+// the header. Override the insets if you measure something else.
+// Firmware buses:
 //   INTERNAL BMP280 shares I2C0 with the OLED — GP4 SDA, GP5 SCL
 //   EXTERNAL BMP280 is alone on I2C1       — GP6 SDA, GP7 SCL
-// The guide's mechanical figure is a low-resolution image and does not
-// print a pitch or a thickness as text. 1.6 mm matches the stated mass
-// for a 21 × 18 mm FR4 board (~1.12 g) plus the sensor and pins.
-// 2.54 mm is the usual pitch of this 6-pin row; override if you measure
-// something else. The housing cradles the 21 × 18 outline; it does not
-// depend on unpublished mounting holes in the module.
 // --------------------------------------------------------------------------
 
-bmp_pcb_l = 21.0;
-bmp_pcb_w = 18.0;
+bmp_pcb_l = 15.0;
+bmp_pcb_w = 11.5;
 bmp_pcb_t = 1.6;
 bmp_pin_count = 6;
 bmp_pin_pitch = 2.54;
 bmp_header_above_pcb = 8.5;
-// Clearance between the PCB edge and the inner wall. Indoor: no still-air
-// buffer and no corner insert bosses. Just enough for the board, the pin
-// row, and the cable turning into the slot.
-bmp_air = 2.2;
-bmp_platform_h = 2.0;      // leg length under the sensor board
-bmp_above_header = 1.2;    // air between header pins and the lid inner face
+// 0.45 mm from the side walls and the back wall. The header edge has a
+// bay so a 1×6 Dupont plug or soldered wires can leave that edge.
+bmp_air = 0.45;
+bmp_header_bay = 3.2;
+bmp_hole_d = 2.2;
+bmp_hole_inset_x = 2.5;
+bmp_hole_inset_back = 2.4;
+bmp_platform_h = 1.6;
+bmp_above_header = 0.8;
 
 // --------------------------------------------------------------------------
 // Fasteners
@@ -204,17 +211,29 @@ oled_nest_outer_w = oled_pocket_w + 2 * oled_nest_wall;
 // Gap between the inner faces of the two header plastics.
 pico_header_inner_gap = pico_row_spacing - pico_header_plastic_w;
 
-bmp_pocket_l = bmp_pcb_l + 2 * fit_clearance;
-bmp_pocket_w = bmp_pcb_w + 2 * fit_clearance;
+bmp_pocket_l = bmp_pcb_l + 2 * bmp_air;
+bmp_pocket_w = bmp_pcb_w + 2 * bmp_air;
 bmp_chamber_l = bmp_pcb_l + 2 * bmp_air;
-bmp_chamber_w = bmp_pcb_w + 2 * bmp_air;
+bmp_chamber_w = bmp_header_bay + bmp_pcb_w + bmp_air;
 bmp_outer_l = bmp_chamber_l + 2 * wall;
 bmp_outer_w = bmp_chamber_w + 2 * wall;
 bmp_inner_h = bmp_platform_h + bmp_pcb_t + bmp_header_above_pcb + bmp_above_header;
 bmp_body_h = floor_t + bmp_inner_h;
+// Board origin inside the body. Header bay is on Y = 0, the cable face.
+bmp_board_x = wall + bmp_air;
+bmp_board_y = wall + bmp_header_bay;
 
-snap_ridge_h = snap_catch_h + snap_protrusion; // catch plus 45° lead-in
-snap_engagement = snap_protrusion - skirt_gap;
+bmp_latch_arm = bmp_body_h - (bmp_latch_z + latch_recess_h) + 0.10;
+pico_outer_l = wall + pico_l + pico_antenna_gap + wall;
+pico_outer_w = wall + pico_gutter + pico_w + pico_gutter + wall;
+pico_base_h = floor_t + pico_standoff_h + pico_t + pico_header_above_pcb + pico_above_header;
+pico_latch_arm = pico_base_h - (pico_latch_z + latch_recess_h) + 0.10;
+// Centres on the long walls. The cable wall misses FAN and EXT. The far
+// wall misses PWR. Both rows sit above the bracket jaw.
+pico_latch_front_a = 5.2;
+pico_latch_front_b = 49.0;
+pico_latch_back_a = 8.0;
+pico_latch_back_b = 44.0;
 
 // --------------------------------------------------------------------------
 // Fit checks. These run on every export.
@@ -250,17 +269,34 @@ assert(oled_pocket_w >= oled_pcb_w + 2 * 0.20, "OLED pocket is tight");
 assert(oled_connector_w + 1.0 < pico_header_inner_gap,
        "PH2.0 connector is wider than the gap between the Pico headers");
 
-assert(bmp_pocket_l >= bmp_pcb_l + 2 * 0.20, "BMP280 pocket is tight");
-assert(bmp_pocket_w >= bmp_pcb_w + 2 * 0.20, "BMP280 pocket is tight");
-assert(bmp_air >= 1.6, "Not enough clearance around the BMP280");
-assert(bmp_inner_h >= bmp_platform_h + bmp_pcb_t + bmp_header_above_pcb + 1.0,
+assert(bmp_air >= 0.30 && bmp_air <= 0.50, "BMP280 side clearance left 0.3–0.5 mm");
+assert(bmp_pocket_w >= bmp_pcb_w + 2 * 0.30, "BMP280 back clearance left the band");
+assert(bmp_header_bay >= 2.6, "Header bay is tight for a 1x6 Dupont plug");
+assert(bmp_chamber_l + 1e-6 >= bmp_pin_count * bmp_pin_pitch,
+       "Chamber is narrower than a 1x6 Dupont shell");
+assert((bmp_pin_count - 1) * bmp_pin_pitch < bmp_pcb_l,
+       "Pin centres do not fit the 15 mm edge");
+assert(bmp_inner_h >= bmp_platform_h + bmp_pcb_t + bmp_header_above_pcb + 0.6,
        "BMP280 cavity will hit the header pins");
-assert(bmp_pin_count * bmp_pin_pitch < bmp_pcb_l,
-       "Pin row does not fit on the 21 mm edge");
+assert(bmp_hole_inset_x > bmp_hole_d / 2 && bmp_hole_inset_back > bmp_hole_d / 2,
+       "Mounting hole runs off the module");
+assert(bmp_hole_inset_x * 2 < bmp_pcb_l, "Mounting holes meet");
 
-assert(snap_engagement >= 0.30 && snap_engagement <= 0.55,
-       "Snap engagement out of the printable range");
-assert(skirt_t >= 1.2, "Lid skirt too thin to flex as a snap");
+assert(abs((bmp_chamber_l - bmp_pcb_l) / 2 - bmp_air) < 1e-9,
+       "BMP280 side clearance does not match the module");
+assert(abs(bmp_chamber_w - bmp_header_bay - bmp_pcb_w - bmp_air) < 1e-9,
+       "BMP280 back clearance does not match the module");
+assert(abs(latch_interference - 0.20) < 1e-6, "Latch interference is not 0.20 mm");
+assert(latch_recess_d > 0.40, "Latch recess is too shallow to hold");
+assert(abs((latch_gap + latch_reach) - latch_gap - latch_recess_d - latch_interference) < 1e-9,
+       "Hook does not engage the recess by the interference");
+assert(latch_catch + 0.15 < latch_recess_h, "Catch face does not sit inside the recess");
+assert(abs(latch_lead - (latch_reach + latch_gap)) < 1e-6, "Latch lead-in is not 45 degrees");
+assert(latch_t <= 1.05, "Latch finger is too thick to flex");
+assert(bmp_latch_arm >= 8.0, "BMP280 latch arm is too short to flex");
+assert(pico_latch_arm >= 7.2, "Pico latch arm is too short to flex");
+assert(pico_latch_z > 1.3 + rail_h + 0.25 + 1.3, "Pico latch sits inside the bracket jaw");
+assert(skirt_t >= 1.2, "Lid skirt too thin to locate the lid");
 assert(m2_insert_hole_d < m2_insert_od, "Insert hole must be under the insert OD");
 assert(m2_insert_hole_depth >= m2_insert_len, "Insert pocket shorter than the insert");
 assert(m2_clearance_d >= 2.05, "M2 clearance hole too tight");
@@ -272,4 +308,4 @@ echo("FIT pico usb overhang", pico_usb_overhang, "opening", pico_usb_opening_w, 
 echo("FIT oled pcb", oled_pcb_l, oled_pcb_w, "active", oled_active_l, oled_active_w, "window", oled_window_l, oled_window_w);
 echo("FIT oled pocket", oled_pocket_l, oled_pocket_w, "stack", oled_stack_h);
 echo("FIT bmp pocket", bmp_pocket_l, bmp_pocket_w, "chamber", bmp_chamber_l, bmp_chamber_w, "body", bmp_outer_l, bmp_outer_w, bmp_body_h);
-echo("FIT snap engagement", snap_engagement);
+echo("FIT latch", latch_interference, "arm", bmp_latch_arm, pico_latch_arm);

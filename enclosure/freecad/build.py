@@ -414,6 +414,14 @@ class Builder:
         valid = bool(shape.isValid()) if shape else False
         print("  %-22s vol=%10.2f solids=%d valid=%s %s" % (tag, vol, nsolids, valid, state), flush=True)
         if (not valid) or nsolids != 1 or vol <= 0 or any(s in ("Invalid", "Error") for s in state):
+            if shape and nsolids:
+                for i, sol in enumerate(shape.Solids):
+                    bb = sol.BoundBox
+                    print(
+                        "  solid %d vol=%.2f [%.2f %.2f %.2f] [%.2f %.2f %.2f]"
+                        % (i, sol.Volume, bb.XMin, bb.YMin, bb.ZMin, bb.XMax, bb.YMax, bb.ZMax),
+                        flush=True,
+                    )
             die("solid failed after %s/%s" % (self.part, tag))
         return vol
 
@@ -550,9 +558,19 @@ def add_shared(P):
     P.set("skirt_h", 3.2)
     P.set("skirt_t", 1.2)
     P.set("skirt_gap", 0.30)
-    P.set("snap_protrusion", 0.65)
-    P.set("snap_catch_h", 0.55)
-    P.set("snap_len", 8.0)
+    P.set("latch_t", 1.0, "finger thickness")
+    P.set("latch_w", 5.5, "finger width")
+    P.set("latch_gap", 0.20, "air between finger and wall")
+    P.set("latch_reach", 0.75, "hook past the outer face")
+    P.set("latch_interference", 0.20, "hook past the recess floor")
+    P.set("latch_catch", 0.60, "bearing face height")
+    P.set("latch_kerf", 1.2, "slot each side of the finger")
+    P.set("bmp_latch_z", 3.4, "recess on the sensor ends")
+    P.set("pico_latch_z", 6.2, "recess above the bracket jaw")
+    P.set("pico_latch_front_a", 5.2, "cable wall, USB end")
+    P.set("pico_latch_front_b", 49.0, "cable wall, antenna end")
+    P.set("pico_latch_back_a", 8.0, "far wall, USB end")
+    P.set("pico_latch_back_b", 44.0, "far wall, antenna end")
     P.set("pico_l", 51.0)
     P.set("pico_w", 21.0)
     P.set("pico_t", 1.0)
@@ -582,13 +600,18 @@ def add_shared(P):
     P.set("oled_nest_wall", 0.6)
     P.set("oled_active_dx", 0.0)
     P.set("oled_active_dy", 0.0)
-    P.set("bmp_pcb_l", 21.0)
-    P.set("bmp_pcb_w", 18.0)
+    P.set("bmp_pcb_l", 15.0, "purple GY-BMP280 long edge")
+    P.set("bmp_pcb_w", 11.5, "purple GY-BMP280 short edge")
     P.set("bmp_pcb_t", 1.6)
     P.set("bmp_header_above_pcb", 8.5)
-    P.set("bmp_air", 2.2)
-    P.set("bmp_platform_h", 2.0)
-    P.set("bmp_above_header", 1.2)
+    P.set("bmp_air", 0.45, "side and back clearance")
+    P.set("bmp_header_bay", 3.2, "room for a 1x6 plug")
+    P.set("bmp_hole_d", 2.2, "M2 clearance")
+    P.set("bmp_hole_inset_x", 2.5, "from each short edge")
+    P.set("bmp_hole_inset_back", 2.4, "from the edge opposite the header")
+    P.set("bmp_platform_h", 1.6)
+    P.set("bmp_above_header", 0.8)
+    P.set("bmp_corner", 1.2, "sensor shell radius")
     P.set("m2_insert_od", 3.5)
     P.set("m2_insert_len", 3.0)
     P.set("m2_insert_hole_d", 3.2)
@@ -606,27 +629,31 @@ def add_shared(P):
     P.set("fuse_overlap", 0.20, "coplanar overlap")
     P.set("cut_overshoot", 0.20, "cutter past the solid")
     P.set("stadium_flat", 0.04, "fillet flat so a semicircle stays solvable")
-    P.set("snap_bite", 0.35, "snap root buried in the wall")
     P.set("label_extra", 0.45, "text cutter past the face")
-    P.fml("snap_ridge_h", "snap_catch_h + snap_protrusion", 1.2)
-    P.fml("snap_reach", "snap_protrusion + snap_bite", 1.0)
+    P.fml("latch_recess_d", "latch_reach - latch_interference", 0.55)
+    P.fml("latch_lead", "latch_reach + latch_gap", 0.95)
+    P.fml("latch_hx", "latch_gap + latch_reach", 0.95)
+    P.fml("latch_recess_h", "latch_catch + latch_lead + 0.40", 1.95)
     P.fml("oled_stack_h", "oled_pcb_t + oled_glass_t", 2.65)
     P.fml("oled_window_l", "oled_active_l + oled_window_extra", 22.78)
     P.fml("oled_window_w", "oled_active_w + oled_window_extra", 5.98)
     P.fml("oled_pocket_l", "oled_pcb_l + 2 * fit_clearance", 36.6)
     P.fml("oled_pocket_w", "oled_pcb_w + 2 * fit_clearance", 13.1)
     P.fml("oled_nest_drop", "oled_stack_h + 0.8", 3.45)
-    P.fml("bmp_pocket_l", "bmp_pcb_l + 2 * fit_clearance", 21.6)
-    P.fml("bmp_pocket_w", "bmp_pcb_w + 2 * fit_clearance", 18.6)
-    P.fml("bmp_chamber_l", "bmp_pcb_l + 2 * bmp_air", 25.4)
-    P.fml("bmp_chamber_w", "bmp_pcb_w + 2 * bmp_air", 22.4)
-    P.fml("bmp_outer_l", "bmp_chamber_l + 2 * wall", 28.6)
-    P.fml("bmp_outer_w", "bmp_chamber_w + 2 * wall", 25.6)
+    P.fml("bmp_pocket_l", "bmp_pcb_l + 2 * bmp_air", 15.9)
+    P.fml("bmp_pocket_w", "bmp_pcb_w + 2 * bmp_air", 12.4)
+    P.fml("bmp_chamber_l", "bmp_pcb_l + 2 * bmp_air", 15.9)
+    P.fml("bmp_chamber_w", "bmp_header_bay + bmp_pcb_w + bmp_air", 15.15)
+    P.fml("bmp_outer_l", "bmp_chamber_l + 2 * wall", 19.1)
+    P.fml("bmp_outer_w", "bmp_chamber_w + 2 * wall", 18.35)
     P.fml(
         "bmp_body_h",
         "floor_t + bmp_platform_h + bmp_pcb_t + bmp_header_above_pcb + bmp_above_header",
-        14.5,
+        13.7,
     )
+    P.fml("bmp_board_x", "wall + bmp_air", 2.05)
+    P.fml("bmp_board_y", "wall + bmp_header_bay", 4.8)
+    P.fml("bmp_latch_arm", "bmp_body_h - bmp_latch_z - latch_recess_h + 0.10", 8.45)
     P.fml("pico_outer_l", "wall + pico_l + pico_antenna_gap + wall", 56.7)
     P.fml("pico_outer_w", "wall + pico_gutter + pico_w + pico_gutter + wall", 32.2)
     P.fml(
@@ -634,6 +661,7 @@ def add_shared(P):
         "floor_t + pico_standoff_h + pico_t + pico_header_above_pcb + pico_above_header",
         15.5,
     )
+    P.fml("pico_latch_arm", "pico_base_h - pico_latch_z - latch_recess_h + 0.10", 7.45)
     P.fml("pico_usb_opening_w", "pico_usb_shell_w + 3", 11.0)
     P.fml("pico_usb_opening_h", "pico_usb_shell_h + 2.2", 6.0)
     P.fml("label_depth", "0.45 + label_extra", 0.9)
@@ -716,27 +744,60 @@ def add_rails(b, length, width):
     )
 
 
-def add_snap(b, tag, x, y_root, z0, sign):
-    """sign +1 protrudes toward +Y. Sketch plane is YZ, padded along X."""
+def add_latch_finger(b, tag, kind, center, inner, hook_sign, arm):
+    """Cantilever finger. `kind` is XZ (hook along X, centred in Y) or YZ
+    (hook along Y, centred in X). hook_sign +1 points the hook toward the
+    positive sketch axis. The root is buried in the lid plate."""
     d = b.params.d
-    reach = d("snap_reach")
-    catch = d("snap_catch_h")
-    y1 = y_root + reach if sign > 0 else y_root - reach
-    if sign > 0:
-        pts = [
-            (y_root, z0),
-            (y1, z0),
-            (y1, z0 + catch),
-            (y_root, z0 + catch + reach),
-        ]
+    t = d("latch_t")
+    hx = d("latch_hx")
+    catch = d("latch_catch")
+    lead = d("latch_lead")
+    z0 = d("lid_t") - d("fuse_overlap")
+    zc = d("lid_t") + arm
+    zh = zc + catch
+    zl = zh + lead
+    x_out = inner - t * hook_sign
+    x_hook = inner + hx * hook_sign
+    # The hook has to overlap the arm. A shared edge is not a solid join.
+    bury = d("fuse_overlap")
+    x_bury = inner - bury * hook_sign
+    b.pad_polygon(
+        tag,
+        [
+            (x_out, z0),
+            (x_out, zc),
+            (inner, zc),
+            (inner, z0),
+        ],
+        d("latch_w"),
+        z=center.v,
+        kind=kind,
+        side="Symmetric",
+    )
+    b.pad_polygon(
+        tag + "h",
+        [
+            (x_bury, zc - lit(0.08)),
+            (x_hook, zc - lit(0.08)),
+            (x_hook, zh),
+            (inner, zl),
+            (x_bury, zc + catch * lit(0.35)),
+        ],
+        d("latch_w"),
+        z=center.v,
+        kind=kind,
+        side="Symmetric",
+    )
+    tab_z = (zc - lit(0.7)).v
+    if hook_sign > 0:
+        tab_x = x_out - lit(0.8)
     else:
-        pts = [
-            (y_root, z0),
-            (y_root, z0 + catch + reach),
-            (y1, z0 + catch),
-            (y1, z0),
-        ]
-    b.pad_polygon(tag, pts, d("snap_len"), z=x.v, kind="YZ", side="Symmetric")
+        tab_x = x_out - lit(0.2)
+    if kind == "XZ":
+        b.pad_rect(tag + "t", tab_x, center - lit(1.1), lit(1.0), lit(2.2), lit(0.9), z=tab_z)
+    else:
+        b.pad_rect(tag + "t", center - lit(1.1), tab_x, lit(2.2), lit(1.0), lit(0.9), z=tab_z)
 
 
 def build_pico_base():
@@ -794,11 +855,35 @@ def build_pico_base():
         wall_slot(b, "i2c_%d" % i, cx, slot_y, lit(5.2), lit(8.0), lit(5.0), through)
     wall_slot(b, "pwr", lit(16.0), outer_w - wall / 2, lit(4.8), lit(8.0), lit(4.0), through)
 
-    bite = d("snap_bite")
-    z_snap = base_h - lit(0.9) - d("snap_ridge_h")
-    for i, frac in enumerate((lit(0.32), lit(0.68))):
-        add_snap(b, "snap_n%d" % i, outer_l * frac, bite, z_snap, -1)
-        add_snap(b, "snap_p%d" % i, outer_l * frac, outer_w - bite, z_snap, +1)
+    win = d("latch_w") + lit(0.8)
+    depth = d("latch_recess_d") + d("cut_overshoot")
+    # One-sided pockets on an XZ datum cut away from the wall, so these
+    # recesses are symmetric about the middle of the cut.
+    for i, cx in enumerate((d("pico_latch_front_a"), d("pico_latch_front_b"))):
+        b.pocket_rect(
+            "lrf%d" % i,
+            cx - win / 2,
+            d("pico_latch_z"),
+            win,
+            d("latch_recess_h"),
+            depth,
+            z=((-d("cut_overshoot") + d("latch_recess_d")) / 2).v,
+            kind="XZ",
+            side="Symmetric",
+        )
+    for i, cx in enumerate((d("pico_latch_back_a"), d("pico_latch_back_b"))):
+        y0 = outer_w - d("latch_recess_d")
+        b.pocket_rect(
+            "lrb%d" % i,
+            cx - win / 2,
+            d("pico_latch_z"),
+            win,
+            d("latch_recess_h"),
+            depth,
+            z=((y0 + y0 + depth) / 2).v,
+            kind="XZ",
+            side="Symmetric",
+        )
 
     cleat_h = lit(1.4)
     cleat_d = lit(1.8)
@@ -977,32 +1062,57 @@ def build_pico_lid():
     bootsel_y = lid_of(d("wall") + d("pico_gutter") + d("pico_w") / 2, body_w, lid_w)
     b.pocket_circle("bootsel", bootsel_x, bootsel_y, d("pico_bootsel_hole_d") / 2, d("lid_t"))
 
-    catch0 = d("pico_base_h") - lit(0.9) - d("snap_ridge_h")
-    catch1 = catch0 + d("snap_catch_h")
-    z0 = d("pico_base_h") + d("lid_t") - (catch1 + lit(0.25))
-    z1 = d("pico_base_h") + d("lid_t") - (catch0 - lit(0.25))
-    win_h = z1 - z0
-    win_l = d("snap_len") + lit(0.8)
-    span = d("skirt_t") + lit(1.4)
-    for i, frac in enumerate((lit(0.32), lit(0.68))):
-        cx = lid_of(body_l * frac, body_l, lid_l)
-        for j, side in enumerate((zero(), body_w)):
-            cy = lid_of(side, body_w, lid_w)
-            b.pocket_rect(
-                "sw_%d%d" % (i, j),
-                cx - win_l / 2,
-                z0,
-                win_l,
-                win_h,
-                span,
-                z=cy.v,
-                kind="XZ",
-                side="Symmetric",
-            )
+    # Seating mirrors Y, so the cable-wall fingers live on the high-Y skirt
+    # and the far-wall fingers live on y = 0. Slots are cut before the
+    # fingers, so each arm roots only in the plate.
+    inset = d("skirt_gap") + d("skirt_t")
+    slot_w = d("latch_w") + 2 * d("latch_kerf")
+    slot_h = d("skirt_h") + lit(0.55)
+    slot_z = (d("lid_t") + lit(0.05)).v
+    for i, cx in enumerate((d("pico_latch_front_a"), d("pico_latch_front_b"))):
+        b.pocket_rect(
+            "lsf%d" % i,
+            inset + cx - slot_w / 2,
+            lid_w - d("skirt_t") - lit(0.35),
+            slot_w,
+            d("skirt_t") + lit(0.6),
+            slot_h,
+            z=slot_z,
+        )
+    for i, cx in enumerate((d("pico_latch_back_a"), d("pico_latch_back_b"))):
+        b.pocket_rect(
+            "lsb%d" % i,
+            inset + cx - slot_w / 2,
+            -d("cut_overshoot"),
+            slot_w,
+            d("skirt_t") + lit(0.55),
+            slot_h,
+            z=slot_z,
+        )
+    for i, cx in enumerate((d("pico_latch_front_a"), d("pico_latch_front_b"))):
+        add_latch_finger(
+            b,
+            "lf%d" % i,
+            "YZ",
+            inset + cx,
+            inset + body_w + d("latch_gap"),
+            -1,
+            d("pico_latch_arm"),
+        )
+    for i, cx in enumerate((d("pico_latch_back_a"), d("pico_latch_back_b"))):
+        add_latch_finger(
+            b,
+            "lb%d" % i,
+            "YZ",
+            inset + cx,
+            inset - d("latch_gap"),
+            +1,
+            d("pico_latch_arm"),
+        )
     b.pocket_rect(
         "notch",
         ox - lit(5),
-        lid_w - d("skirt_t") / 2 - lit(0.8),
+        lit(-0.8),
         lit(10),
         d("skirt_t") + lit(1.6),
         lit(2.4),
@@ -1022,11 +1132,13 @@ def build_bmp_body(ext):
     P.check()
     d = P.d
     outer_l, outer_w, body_h = d("bmp_outer_l"), d("bmp_outer_w"), d("bmp_body_h")
-    expect(outer_l, 28.6, "bmp_outer_l")
-    expect(outer_w, 25.6, "bmp_outer_w")
-    expect(body_h, 14.5, "bmp_body_h")
+    expect(outer_l, 19.1, "bmp_outer_l")
+    expect(outer_w, 18.35, "bmp_outer_w")
+    expect(body_h, 13.7, "bmp_body_h")
+    expect(d("bmp_latch_arm"), 8.45, "bmp_latch_arm")
+    expect(d("latch_interference"), 0.20, "latch_interference")
     wall = d("wall")
-    b.pad_rect("shell", zero(), zero(), outer_l, outer_w, body_h, radius=d("corner_r"))
+    b.pad_rect("shell", zero(), zero(), outer_l, outer_w, body_h, radius=d("bmp_corner"))
     add_rails(b, outer_l, outer_w)
     b.pocket_rect(
         "cavity",
@@ -1037,71 +1149,87 @@ def build_bmp_body(ext):
         body_h - d("floor_t") + d("cut_overshoot"),
         z=d("floor_t").v,
     )
-    # Through-slot. Centering a short cutter on the outer face left a skin.
-    cable_w = lit(16.5)
-    cable_h = lit(6.0)
-    cable_z0 = d("rail_h") + lit(0.9)
+    # Rounded through-slot, lined up with the centred header. A stadium
+    # end would pinch a 15.24 mm Dupont shell.
+    cable_w = lit(15.5)
+    cable_h = lit(4.6)
+    cable_z0 = d("rail_h") + lit(0.55)
     cable_depth = wall + lit(3.4)
-    cable_y0 = lit(-1.2)
-    wall_slot(
-        b,
+    # Symmetric: a one-sided pocket on an XZ datum cuts away from the wall.
+    b.pocket_rect(
         "cable",
-        outer_l / 2,
-        cable_y0 + cable_depth / 2,
+        outer_l / 2 - cable_w / 2,
         cable_z0,
         cable_w,
         cable_h,
         cable_depth,
+        z=(lit(-1.2) + cable_depth / 2).v,
+        radius=lit(0.8),
+        kind="XZ",
+        side="Symmetric",
     )
-    # Legs under the module, sunk 0.3 mm into the floor.
-    x0 = wall + d("bmp_air")
-    y0 = wall + d("bmp_air")
-    leg = lit(2.4)
-    inset = lit(0.8)
-    leg_h = d("bmp_platform_h") + lit(0.3)
-    for i, px in enumerate((inset, d("bmp_pocket_l") - leg - inset)):
-        for j, py in enumerate((inset, d("bmp_pocket_w") - leg - inset)):
+    board_x = d("bmp_board_x")
+    board_y = d("bmp_board_y")
+    leg = lit(1.8)
+    inset = lit(0.25)
+    leg_h = d("bmp_platform_h") + d("fuse_overlap")
+    zleg = (d("floor_t") - d("fuse_overlap")).v
+    for i, px in enumerate((inset, d("bmp_pcb_l") - leg - inset)):
+        for j, py in enumerate((inset, d("bmp_pcb_w") - leg - inset)):
             b.pad_rect(
                 "leg_%d%d" % (i, j),
-                x0 + px,
-                y0 + py,
+                board_x + px,
+                board_y + py,
                 leg,
                 leg,
                 leg_h,
-                z=(d("floor_t") - lit(0.3)).v,
+                z=zleg,
             )
-    b.pad_rect(
-        "lip",
-        x0 - lit(0.4),
-        y0 + d("bmp_pocket_w") - lit(1.0),
-        d("bmp_pocket_l") + lit(0.8),
-        lit(1.4),
-        lit(1.6),
-        z=(d("floor_t") + d("bmp_platform_h") - lit(0.3)).v,
-    )
-    # Posts just outside the opening. The bar is inboard, at the top of
-    # the slot, so it does not fill the through hole.
-    post = lit(1.4)
-    gap = lit(0.5)
-    x0 = outer_l / 2 - cable_w / 2 - gap - post
-    span = cable_w + 2 * gap + 2 * post
-    bar_z = cable_z0 + cable_h
-    bar_h = lit(1.4)
-    post_h = (bar_z + bar_h) - (d("floor_t") - lit(0.2))
-    for i, px in enumerate((x0, x0 + span - post)):
-        b.pad_rect(
-            "post%d" % i,
-            px,
-            wall - lit(0.35),
-            post,
-            lit(2.0),
-            post_h,
-            z=(d("floor_t") - lit(0.2)).v,
+    for i, hx in enumerate((d("bmp_hole_inset_x"), d("bmp_pcb_l") - d("bmp_hole_inset_x"))):
+        cx = board_x + hx
+        cy = board_y + d("bmp_pcb_w") - d("bmp_hole_inset_back")
+        b.pad_circle("boss_%d" % i, cx, cy, lit(2.1), leg_h, z=zleg)
+        b.pocket_circle(
+            "screw_%d" % i,
+            cx,
+            cy,
+            d("bmp_hole_d") / 2,
+            d("floor_t") + d("bmp_platform_h") + lit(0.4),
+            z=lit(-0.2).v,
         )
-    b.pad_rect("bar", x0, wall + lit(0.35), span, lit(1.8), bar_h, z=bar_z.v)
-    z_snap = body_h - lit(0.85) - d("snap_ridge_h")
-    add_snap(b, "snap_n", outer_l / 2, d("snap_bite"), z_snap, -1)
-    add_snap(b, "snap_p", outer_l / 2, outer_w - d("snap_bite"), z_snap, +1)
+    # Bar on the top edge of the slot. The ends bite the side walls.
+    b.pad_rect(
+        "bar",
+        wall - lit(0.4),
+        wall + lit(0.25),
+        d("bmp_chamber_l") + lit(0.8),
+        lit(1.6),
+        lit(1.2),
+        z=(cable_z0 + cable_h).v,
+    )
+    win = d("latch_w") + lit(0.8)
+    depth = d("latch_recess_d") + d("cut_overshoot")
+    wy = outer_w / 2 - win / 2
+    b.pocket_rect(
+        "lr0",
+        wy,
+        d("bmp_latch_z"),
+        win,
+        d("latch_recess_h"),
+        depth,
+        z=(-d("cut_overshoot")).v,
+        kind="YZ",
+    )
+    b.pocket_rect(
+        "lr1",
+        wy,
+        d("bmp_latch_z"),
+        win,
+        d("latch_recess_h"),
+        depth,
+        z=(outer_l - d("latch_recess_d")).v,
+        kind="YZ",
+    )
     return b
 
 
@@ -1116,7 +1244,7 @@ def build_bmp_lid(ext):
     body_l, body_w = d("bmp_outer_l"), d("bmp_outer_w")
     lid_l = body_l + 2 * (d("skirt_gap") + d("skirt_t"))
     lid_w = body_w + 2 * (d("skirt_gap") + d("skirt_t"))
-    b.pad_rect("plate", zero(), zero(), lid_l, lid_w, d("lid_t"), radius=d("corner_r"))
+    b.pad_rect("plate", zero(), zero(), lid_l, lid_w, d("lid_t"), radius=d("bmp_corner"))
     b.pad_rect(
         "skirt",
         zero(),
@@ -1125,7 +1253,7 @@ def build_bmp_lid(ext):
         lid_w,
         d("skirt_h") + d("fuse_overlap"),
         z=(d("lid_t") - d("fuse_overlap")).v,
-        radius=d("corner_r"),
+        radius=d("bmp_corner"),
     )
     b.pocket_rect(
         "skirt_void",
@@ -1136,48 +1264,50 @@ def build_bmp_lid(ext):
         d("skirt_h") + d("cut_overshoot"),
         z=d("lid_t").v,
     )
-    catch0 = d("bmp_body_h") - lit(0.85) - d("snap_ridge_h")
-    catch1 = catch0 + d("snap_catch_h")
-    z0 = d("bmp_body_h") + d("lid_t") - (catch1 + lit(0.2))
-    z1 = d("bmp_body_h") + d("lid_t") - (catch0 - lit(0.2))
-    win_h = z1 - z0
-    win_l = d("snap_len") + lit(0.8)
-    span = d("skirt_t") + lit(1.4)
-
-    def lid_of(v, body_span, lid_span):
-        return (lid_span - body_span) / 2 + v
-
-    for i, side in enumerate((zero(), body_w)):
-        cy = lid_of(side, body_w, lid_w)
-        b.pocket_rect(
-            "sw_%d" % i,
-            lid_l / 2 - win_l / 2,
-            z0,
-            win_l,
-            win_h,
-            span,
-            z=cy.v,
-            kind="XZ",
-            side="Symmetric",
-        )
-    for i, sign in enumerate((lit(-1), lit(1))):
-        cx = lid_l / 2 + sign * lit(7.2)
+    inset = d("skirt_gap") + d("skirt_t")
+    yc = inset + body_w / 2
+    slot_w = d("latch_w") + 2 * d("latch_kerf")
+    slot_h = d("skirt_h") + lit(0.55)
+    slot_z = (d("lid_t") + lit(0.05)).v
+    b.pocket_rect(
+        "ls0",
+        -d("cut_overshoot"),
+        yc - slot_w / 2,
+        d("skirt_t") + lit(0.55),
+        slot_w,
+        slot_h,
+        z=slot_z,
+    )
+    b.pocket_rect(
+        "ls1",
+        lid_l - d("skirt_t") - lit(0.35),
+        yc - slot_w / 2,
+        d("skirt_t") + lit(0.6),
+        slot_w,
+        slot_h,
+        z=slot_z,
+    )
+    add_latch_finger(b, "lf0", "XZ", yc, inset - d("latch_gap"), +1, d("bmp_latch_arm"))
+    add_latch_finger(
+        b, "lf1", "XZ", yc, inset + body_l + d("latch_gap"), -1, d("bmp_latch_arm")
+    )
+    cx = inset + d("bmp_board_x") + d("bmp_pcb_l") / 2
+    cy = body_w + inset - (d("bmp_board_y") + d("bmp_pcb_w") / 2)
+    for i, dx in enumerate((lit(-1.7), lit(1.7))):
         b.pocket_rect(
             "vent_%d" % i,
-            cx - lit(3),
-            lit(-0.2),
-            lit(6),
-            lit(2),
+            cx + dx - lit(2.1),
+            cy - lit(0.9),
+            lit(4.2),
+            lit(1.8),
             d("lid_t") + lit(0.6),
-            z=(lid_w / 2).v,
-            radius=b.stadium_radius(lit(2)),
-            kind="XZ",
-            side="Symmetric",
+            z=lit(-0.2).v,
+            radius=lit(0.6),
         )
     b.cut_text(
         "EXT" if ext else "INT",
-        lit(5.0),
-        App.Vector((lid_l / 2).v, (lid_w / 2).v, -0.15),
+        lit(3.6),
+        App.Vector((lid_l / 2).v, (lid_w - lit(4.2)).v, -0.15),
         (1, 0, 0),
         (0, 1, 0),
         (0, 0, d("label_depth").v),
@@ -1185,9 +1315,9 @@ def build_bmp_lid(ext):
     )
     b.pocket_rect(
         "notch",
-        lid_l / 2 - lit(4.5),
-        lid_w - d("skirt_t") / 2 - lit(0.8),
-        lit(9),
+        lid_l / 2 - lit(4),
+        lit(-0.8),
+        lit(8),
         d("skirt_t") + lit(1.6),
         lit(2.2),
         z=(d("lid_t") + d("skirt_h") - lit(1.05)).v,
@@ -1297,34 +1427,52 @@ PROBES = {
         (28.0, 16.0, 8.0, False, "cavity"),
         (28.35, -0.7, 1.6, False, "zip rail"),
         (55.9, 16.1, 10.0, False, "antenna"),
+        (5.2, 0.25, 7.2, False, "front latch recess"),
+        (5.2, 1.15, 7.2, True, "wall behind front latch"),
+        (44.0, 31.9, 7.2, False, "back latch recess"),
     ],
     "pico_case_lid": [
         (34.6, 17.6, 0.4, False, "OLED window"),
         (34.6, 24.0, 0.6, True, "beside window"),
         (10.6, 17.6, 0.6, False, "BOOTSEL"),
         (34.6, 17.6, 3.0, False, "nest pocket"),
+        (6.7, 34.4, 5.0, True, "front latch arm"),
+        (6.7, 33.2, 8.9, True, "front latch hook"),
+        (9.5, 0.8, 5.0, True, "back latch arm"),
+        (3.35, 34.5, 2.8, False, "front latch kerf"),
     ],
     "bmp280_int_body": [
-        (14.3, 0.8, 7.1, False, "cable in the wall"),
-        (14.3, 2.2, 7.1, False, "cable into the cavity"),
-        (14.3, -0.4, 7.1, False, "cable outside the wall"),
-        (4.8, 0.8, 7.1, True, "wall beside the cable exit"),
-        (14.0, 12.0, 0.5, True, "floor"),
-        (14.0, 12.0, 8.0, False, "cavity"),
+        (9.55, 0.8, 6.05, False, "cable in the wall"),
+        (9.55, 2.2, 6.05, False, "cable into the cavity"),
+        (9.55, -0.4, 6.05, False, "cable outside the wall"),
+        (1.2, 0.8, 6.05, True, "wall beside the cable exit"),
+        (9.5, 10.0, 0.4, True, "floor"),
+        (9.5, 10.0, 8.0, False, "cavity"),
+        (0.25, 9.175, 4.4, False, "latch recess"),
+        (1.15, 9.175, 4.4, True, "wall behind latch"),
+        (9.55, 2.2, 8.9, True, "cleat"),
+        (9.55, 2.2, 7.5, False, "under cleat"),
     ],
     "bmp280_ext_body": [
-        (14.3, 0.8, 7.1, False, "cable in the wall"),
-        (14.3, 2.2, 7.1, False, "cable into the cavity"),
-        (4.8, 0.8, 7.1, True, "wall beside the cable exit"),
-        (14.0, 12.0, 8.0, False, "cavity"),
+        (9.55, 0.8, 6.05, False, "cable in the wall"),
+        (9.55, 2.2, 6.05, False, "cable into the cavity"),
+        (1.2, 0.8, 6.05, True, "wall beside the cable exit"),
+        (9.5, 10.0, 8.0, False, "cavity"),
+        (0.25, 9.175, 4.4, False, "latch recess"),
+        (1.15, 9.175, 4.4, True, "wall behind latch"),
     ],
     "bmp280_int_lid": [
-        (23.0, 14.3, 0.6, False, "vent"),
-        (15.8, 14.3, 0.95, True, "label web"),
+        (11.05, 9.3, 0.4, False, "vent"),
+        (11.05, 17.15, 1.05, True, "label web"),
+        (0.8, 10.675, 5.0, True, "latch arm"),
+        (1.7, 10.675, 9.95, True, "latch hook"),
+        (0.6, 7.3, 2.8, False, "latch kerf"),
     ],
     "bmp280_ext_lid": [
-        (23.0, 14.3, 0.6, False, "vent"),
-        (15.8, 14.3, 0.95, True, "label web"),
+        (11.05, 9.3, 0.4, False, "vent"),
+        (11.05, 17.15, 1.05, True, "label web"),
+        (0.8, 10.675, 5.0, True, "latch arm"),
+        (1.7, 10.675, 9.95, True, "latch hook"),
     ],
     "mount_pico": [
         (24.0, 2.4, 3.0, False, "groove"),
@@ -1332,8 +1480,8 @@ PROBES = {
         (55.3, 11.6, 1.2, False, "flange screw"),
     ],
     "mount_bmp": [
-        (10.0, 2.4, 3.0, False, "groove"),
-        (10.0, 0.8, 3.0, True, "jaw wall"),
+        (5.0, 2.4, 3.0, False, "groove"),
+        (5.0, 0.8, 3.0, True, "jaw wall"),
     ],
 }
 
